@@ -1,0 +1,58 @@
+appId: com.photostory.app
+productName: 照片故事
+copyright: Copyright © 2026
+
+directories:
+  output: dist-electron
+  buildResources: build
+
+files:
+  - electron/**
+  - package.json
+  - '!node_modules/**'
+  - '!**/*.map'
+  - '!**/*.ts'
+
+asar: true
+
+# 压缩级别拉满（安装包体积更小；构建慢一点没关系）
+compression: maximum
+
+extraResources:
+  - from: .next/standalone
+    to: standalone
+    filter:
+      - '**/*'
+      - '!**/*.map'
+
+win:
+  icon: build/icon.ico
+  # ASCII 可执行名：进程检测/卸载脚本更稳，快捷方式仍显示中文
+  executableName: photo-story
+  # 只出安装版（便携版每次启动要解压 80MB，体验差，已停用）
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  # 0.5.4：从「一键装」改成「向导装」——用户可以在向导里选安装到哪个盘/文件夹。
+  # 仍然是非管理员安装（perMachine: false），装到当前用户的 LocalAppData 下，不需要 UAC。
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  # 关掉差量更新包：它会把 7z 强制切成非固实（2190 个块），安装包从 82MB 涨到 92MB。
+  # 这里不做增量更新，固实压缩更划算。
+  differentialPackage: false
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 照片故事
+  artifactName: 照片故事-${version}-安装版.exe
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerLanguages:
+    - zh_CN
+  language: '2052'

@@ -1,0 +1,970 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@source '../../src/**/*.{ts,tsx}';
+
+/* ============================================================================
+ * 照片故事 · 设计令牌
+ * 0.5.1：把「纸张感」和「深色高级感」两套语言统一成一套分层令牌。
+ *  - 颜色：paper / surface / surface-2 / surface-3 四级高度，靠明度差而不是描边分层
+ *  - 阴影：elev-1/2/3 三级，深色下改用内发光 + 更深的投影
+ *  - 动效：--dur-* 时长 + --ease-* 曲线，所有动画只引用令牌，不再各写各的
+ * ========================================================================== */
+
+:root {
+  --radius: 0.625rem;
+  --background: #faf8f4;
+  --foreground: #191919;
+  --card: #ffffff;
+  --card-foreground: #191919;
+  --popover: #ffffff;
+  --popover-foreground: #191919;
+  --primary: #191919;
+  --primary-foreground: #faf8f4;
+  --secondary: #f2efe9;
+  --secondary-foreground: #191919;
+  --muted: #f2efe9;
+  --muted-foreground: #6a6a6a;
+  --accent: #ebe7df;
+  --accent-foreground: #191919;
+  --destructive: #b3261e;
+  --destructive-foreground: #faf8f4;
+  --border: #e2ded6;
+  --input: #ded9d0;
+  --ring: #8a8a8a;
+
+  /* ---- 动效令牌 ---- */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 460ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- 分层阴影（浅色：柔和投影 + 极淡描边）---- */
+  --elev-1: 0 1px 2px rgba(24, 22, 18, 0.04), 0 1px 3px rgba(24, 22, 18, 0.03);
+  --elev-2: 0 2px 6px -2px rgba(24, 22, 18, 0.06), 0 8px 24px -12px rgba(24, 22, 18, 0.1);
+  --elev-3: 0 8px 20px -8px rgba(24, 22, 18, 0.1), 0 24px 56px -28px rgba(24, 22, 18, 0.18);
+  --elev-hover: 0 4px 12px -4px rgba(24, 22, 18, 0.08), 0 18px 44px -20px rgba(24, 22, 18, 0.16);
+  --hairline: rgba(24, 22, 18, 0.07);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 5px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@theme {
+  --color-paper: #faf8f4;
+  --color-ink: #191919;
+  --color-ink-mid: #6a6a6a;
+  --color-ink-light: #8f8b84;
+  --color-ink-faint: #b3aea5;
+  --color-line: #e2ded6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f2ec;
+  --color-surface-3: #efebe3;
+  --font-serif: 'Songti SC', 'SimSun', '宋体', 'Source Han Serif SC', 'Noto Serif CJK SC', Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', system-ui, sans-serif;
+  --radius-xs: 4px;
+  --radius-card: 12px;
+  --spacing-gutter: 1rem;
+  --spacing-section: 2.5rem;
+}
+
+/* ------------------------------- 字体方案 ------------------------------- */
+:root {
+  --font-round: 'MiSans', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI',
+    'Microsoft YaHei', 'Source Han Sans SC', 'Noto Sans CJK SC', system-ui, sans-serif;
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', '微软雅黑', system-ui, sans-serif;
+  --font-song: 'Songti SC', 'SimSun', '宋体', 'Source Han Serif SC', Georgia, serif;
+  --font-display: var(--font-round);
+}
+
+[data-font='round'] {
+  --font-sans: var(--font-round);
+  --font-display: var(--font-round);
+}
+
+[data-font='system'] {
+  --font-sans: var(--font-system);
+  --font-display: var(--font-round);
+}
+
+[data-font='song'] {
+  --font-sans: var(--font-song);
+  --font-display: var(--font-song);
+}
+
+/* ============================================================================
+ * 深色：不是把浅色反相，而是重新排一套「近黑但分层」的灰阶
+ * bg 0E0E11 → surface 16161A → surface-2 1D1D23 → surface-3 24242B
+ * 这样卡片靠明度就能浮起来，不用满屏描边
+ * ========================================================================== */
+[data-theme='dark'] {
+  --color-paper: #0e0e11;
+  --color-ink: #f4f2ec;
+  --color-ink-mid: #a9a69d;
+  --color-ink-light: #8b8880;
+  --color-ink-faint: #6b6862;
+  --color-line: #2a2a31;
+  --color-surface: #16161a;
+  --color-surface-2: #1d1d23;
+  --color-surface-3: #24242b;
+
+  --background: #0e0e11;
+  --foreground: #f4f2ec;
+  --card: #16161a;
+  --card-foreground: #f4f2ec;
+  --popover: #1a1a1f;
+  --popover-foreground: #f4f2ec;
+  --primary: #f4f2ec;
+  --primary-foreground: #0e0e11;
+  --secondary: #1f1f25;
+  --secondary-foreground: #f4f2ec;
+  --muted: #1f1f25;
+  --muted-foreground: #a9a69d;
+  --accent: #26262e;
+  --accent-foreground: #f4f2ec;
+  --border: #2a2a31;
+  --input: #33333c;
+  --ring: #6f6f7a;
+  --destructive: #d4574d;
+  --destructive-foreground: #0e0e11;
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 12px 28px -16px rgba(0, 0, 0, 0.6);
+  --elev-3: 0 12px 28px -12px rgba(0, 0, 0, 0.6), 0 32px 64px -32px rgba(0, 0, 0, 0.8);
+  --elev-hover: 0 4px 14px -4px rgba(0, 0, 0, 0.55), 0 22px 50px -24px rgba(0, 0, 0, 0.7);
+  --hairline: rgba(255, 255, 255, 0.075);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    background-color: var(--color-paper);
+    color-scheme: light;
+    /* 预留滚动条宽度：切换页面时不会因滚动条出现/消失而横向跳动 */
+    scrollbar-gutter: stable;
+  }
+
+  /* 0.4.0：Radix 打开下拉/弹窗时会给 body 加 padding-right 补偿滚动条，
+     和上面的 scrollbar-gutter 叠加后会让整页向左跳。这里强制清零。 */
+  body {
+    padding-right: 0 !important;
+  }
+
+  /* 0.4.1：首帧前就按折叠状态收窄侧栏，避免闪一下再收 */
+  html[data-sidebar='compact'] aside.ps-sidebar {
+    width: 4.5rem !important;
+  }
+
+  html[data-sidebar='compact'] aside.ps-sidebar [data-sidebar-label] {
+    display: none !important;
+  }
+
+  [data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    background-image:
+      radial-gradient(1200px 560px at 8% -10%, #fffefb 0%, transparent 60%),
+      radial-gradient(1000px 500px at 96% -6%, #f4efe5 0%, transparent 56%);
+    background-attachment: fixed;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* 转场位移不能制造横向滚动条 */
+    overflow-x: clip;
+  }
+
+  [data-theme='dark'] body {
+    background-image:
+      radial-gradient(1200px 560px at 8% -10%, #191920 0%, transparent 60%),
+      radial-gradient(1000px 500px at 96% -6%, #15151b 0%, transparent 56%);
+  }
+
+  /* 0.5.1：顶栏改为 sticky，需要自带一层与页面底色一致的半透明底，否则内容会从下面透出来 */
+  [data-glass-bar] {
+    background-color: color-mix(in srgb, var(--color-paper) 88%, transparent);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+  }
+
+  [data-theme='dark'] [data-glass-bar] {
+    background-color: color-mix(in srgb, var(--color-paper) 84%, transparent);
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-ink) 18%, transparent);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-ink) 70%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-ink) 18%, transparent) transparent;
+  }
+
+  /* 所有可点元素默认带上统一的手感（不动 layout，只动 transform/颜色） */
+  button,
+  a[href],
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ============================== 排版 ============================== */
+
+@utility ps-serif {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+@utility ps-sans {
+  font-family: var(--font-sans);
+}
+
+/* 页面主标题：收字距 + 光学字重，比之前的粗黑体更克制 */
+@utility ps-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.16;
+}
+
+/* 小标签（分组标题、字段名）：大写字距 */
+@utility ps-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-light);
+}
+
+@utility ps-caption {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-ink-mid);
+}
+
+/* ============================== 表面 / 卡片 ============================== */
+
+/* 一级卡片：靠明度 + 极淡描边分层，hover 抬起 */
+@utility ps-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elev-1);
+  transition:
+    box-shadow var(--dur-3) var(--ease-out),
+    transform var(--dur-3) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out);
+}
+
+@utility ps-card-hover {
+  &:hover {
+    box-shadow: var(--elev-hover);
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  }
+}
+
+/* 二级卡片：贴在页面底色上，几乎不描边 */
+@utility ps-panel {
+  background-color: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+}
+
+/* 内嵌区块（卡片里的分区） */
+@utility ps-inset {
+  background-color: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  border-radius: calc(var(--radius-card) - 4px);
+}
+
+@utility ps-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-ink) 10%, transparent) 18%,
+    color-mix(in srgb, var(--color-ink) 10%, transparent) 82%,
+    transparent
+  );
+}
+
+/* 通用悬浮抬起（给按钮/卡片用，不带背景） */
+@utility ps-lift {
+  transition:
+    transform var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out);
+  will-change: transform;
+  &:hover {
+    transform: translateY(-1.5px);
+  }
+}
+
+/* ============================== 动效原语 ============================== */
+
+/* --ps-delay 让任意元素加入统一的错峰入场队列 */
+@keyframes ps-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.994);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@utility ps-enter {
+  animation: ps-enter var(--dur-4) var(--ease-out) both;
+  animation-delay: var(--ps-delay, 0ms);
+}
+
+@keyframes ps-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility ps-fade-up {
+  animation: ps-fade-up var(--dur-4) var(--ease-out) both;
+  animation-delay: var(--ps-delay, 0ms);
+}
+
+/* 纯淡入（用于叠层、遮罩、图片） */
+@keyframes ps-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility ps-fade-in {
+  animation: ps-fade-in var(--dur-3) var(--ease-out) both;
+  animation-delay: var(--ps-delay, 0ms);
+}
+
+@keyframes ps-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@utility ps-fade-out {
+  animation: ps-fade-out 180ms ease-in both;
+}
+
+/* 弹窗：带轻微过冲的回弹入场 + 收束离场（Radix data-state 驱动）
+   注意：这里**不能**写 translate(-50%,-50%)。Tailwind v4 的 translate-x/y-[-50%]
+   生成的是独立 CSS `translate` 属性，而关键帧动的是 `transform`，两者会叠加 →
+   弹窗被再上移半个高度、顶部跑到屏幕外（0.5.4 修的严重 bug）。 */
+@keyframes ps-dialog-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.955) translateY(10px);
+    filter: blur(4px);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.008) translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes ps-dialog-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.975) translateY(4px);
+    filter: blur(2px);
+  }
+}
+
+/* 抽屉 / 面板：从右侧滑入 */
+@keyframes ps-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes ps-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+/* 下拉菜单 / 气泡：从锚点方向轻微放大展开 */
+@keyframes ps-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@utility ps-pop-in {
+  animation: ps-pop-in 180ms var(--ease-out) both;
+}
+
+/* 面板式浮层（命令面板）：不带 translate(-50%) 的弹入，用于自己定位的浮层 */
+@keyframes ps-dialog-panel-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(-10px);
+    filter: blur(4px);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.006) translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+}
+
+@utility ps-dialog-panel-in {
+  animation: ps-dialog-panel-in 280ms var(--ease-spring) both;
+}
+
+@utility ps-sheet-in {
+  animation: ps-sheet-in 320ms var(--ease-out) both;
+}
+
+@utility ps-sheet-out {
+  animation: ps-sheet-out 200ms ease-in both;
+}
+
+/* 数字与徽标：轻微上浮落位 */
+@keyframes ps-badge-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility ps-badge-in {
+  animation: ps-badge-in 320ms var(--ease-spring) both;
+}
+
+/* 图片解码完成后淡入：配合 <img class="ps-img"> 与 onLoad 加 data-loaded */
+@utility ps-img {
+  opacity: 0;
+  transform: scale(1.015);
+  transition:
+    opacity 520ms var(--ease-out),
+    transform 720ms var(--ease-out),
+    filter 420ms var(--ease-out);
+}
+
+.ps-img[data-loaded='true'] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 骨架屏：内容未到位时的呼吸占位 */
+@keyframes ps-shimmer {
+  0% {
+    background-position: -180% 0;
+  }
+  100% {
+    background-position: 180% 0;
+  }
+}
+
+@utility ps-skeleton {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-ink) 5%, transparent) 20%,
+    color-mix(in srgb, var(--color-ink) 11%, transparent) 40%,
+    color-mix(in srgb, var(--color-ink) 5%, transparent) 60%
+  );
+  background-size: 220% 100%;
+  animation: ps-shimmer 1.8s var(--ease-in-out) infinite;
+  border-radius: 6px;
+}
+
+@keyframes ps-pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility ps-pulse-soft {
+  animation: ps-pulse-soft 1.6s ease-in-out infinite;
+}
+
+/* 点击反馈：按下瞬间缩小，松手按回弹曲线放大回去 */
+@utility ps-pressable {
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease;
+  will-change: transform;
+}
+
+.ps-pressable:active {
+  transform: scale(0.965);
+  transition-duration: 90ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+}
+
+/* 侧栏 / 列表项的图标微动：hover 时轻微放大 + 倾斜 */
+@utility ps-icon {
+  transition:
+    transform var(--dur-3) var(--ease-spring),
+    opacity var(--dur-2) var(--ease-out);
+}
+
+.group:hover .ps-icon,
+.ps-icon-host:hover .ps-icon {
+  transform: scale(1.12) rotate(-3deg);
+}
+
+@keyframes ps-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(24px, -18px, 0) scale(1.06);
+  }
+}
+
+@keyframes ps-drift-slow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-28px, 22px, 0) scale(1.08);
+  }
+}
+
+@utility ps-drift {
+  animation: ps-drift 22s ease-in-out infinite;
+}
+
+@utility ps-drift-slow {
+  animation: ps-drift-slow 30s ease-in-out infinite;
+}
+
+/* 预览层：背景淡入 / 面板回弹 / 文字逐块上滑 */
+@keyframes ps-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ps-panel-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.94) translateY(14px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.006) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes ps-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ps-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@utility ps-backdrop-in {
+  animation: ps-backdrop-in 320ms ease-out both;
+}
+@utility ps-panel-in {
+  animation: ps-panel-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+@utility ps-slide-up {
+  animation: ps-slide-up 420ms var(--ease-out) both;
+}
+@utility ps-slide-right {
+  animation: ps-slide-right 420ms var(--ease-out) both;
+}
+
+/* 一级菜单切换：按方向滑动 + 非线性高斯模糊 */
+@keyframes ps-page-next {
+  0% {
+    opacity: 0;
+    transform: translateX(22px) scale(0.996);
+    filter: blur(8px);
+  }
+  55% {
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes ps-page-prev {
+  0% {
+    opacity: 0;
+    transform: translateX(-22px) scale(0.996);
+    filter: blur(8px);
+  }
+  55% {
+    filter: blur(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* 转场动画的 fill-mode 必须是 backwards，不能是 both：
+   both 会把 100% 关键帧的 `transform: translateX(0) scale(1)` 与 `filter: blur(0)`
+   永久留在元素上，而**任何非 none 的 transform/filter 都会让该元素成为
+   position:fixed 后代的包含块**。照片库按日期分组时页面高 5800px，
+   于是预览浮层按 5800px 去居中 → 跑到屏幕外，要滚动才看得见（用户 0.5.5 报的 bug）。 */
+@utility ps-page-next {
+  animation: ps-page-next 340ms var(--ease-out) backwards;
+}
+@utility ps-page-prev {
+  animation: ps-page-prev 340ms var(--ease-out) backwards;
+}
+
+/* 转场容器：裁掉横向溢出，避免切换时出现滚动条。
+   0.5.2：去掉 contain: paint —— 它把整页内容锁进一个隔离图层，
+   页内任何一块带 filter 的元素变化都会让整层重新栅格化，
+   照片墙悬停时那一帧会整片刷白（用户报的「白光闪一下」）。 */
+@utility ps-page-shell {
+  overflow-x: clip;
+}
+
+/* 照片库：以悬停照片为圆心向四周扩散衰减。
+   0.5.2：只动 transform / box-shadow（合成器属性），
+   不再逐个元素改 filter —— 9 张照片同时改 brightness 会触发整层重绘。 */
+@utility ps-tile {
+  transition:
+    transform 380ms var(--ease-spring),
+    box-shadow 380ms ease;
+  backface-visibility: hidden;
+}
+
+/* 横向滚动的边缘渐隐遮罩（分类 chip 行用，避免右侧被硬裁切） */
+@utility ps-edge-fade {
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 22px), transparent 100%);
+}
+
+/* 隐藏滚动条但保留滚动 */
+@utility ps-no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* 数字滚动（配合 CountUp 组件）：只做透明与位移，避免布局跳动 */
+@keyframes ps-num-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.42em);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility ps-num {
+  display: inline-block;
+  animation: ps-num-in 420ms var(--ease-out) both;
+}
+
+/* 直方图柱子生长：从底部长到目标高度 */
+@keyframes ps-bar-grow {
+  from {
+    transform: scaleY(0.02);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* ============================== 玻璃材质 ============================== */
+
+:root {
+  --glass-blur: 24px;
+  --glass-sat: 190%;
+  --glass-1-tint: 74%;
+  --glass-2-tint: 64%;
+  --glass-3-tint: 96%;
+  --glass-edge: rgba(255, 255, 255, 0.62);
+  --glass-edge-dark: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 18px 44px -22px rgba(20, 20, 24, 0.38);
+}
+
+[data-theme='dark'] {
+  --glass-1-tint: 62%;
+  --glass-2-tint: 54%;
+  --glass-3-tint: 94%;
+  --glass-edge: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.72);
+}
+
+[data-glass='on'] aside,
+[data-glass='on'] [data-glass-level='1'] {
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-1-tint), transparent) !important;
+  background-image: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.02) 42%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.85)) saturate(var(--glass-sat));
+  box-shadow: inset -1px 0 0 var(--glass-edge), var(--glass-shadow);
+}
+
+[data-glass='on'] .bg-surface,
+[data-glass='on'] .bg-surface\/70,
+[data-glass='on'] .bg-surface\/60,
+[data-glass='on'] .bg-surface\/50 {
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-2-tint), transparent) !important;
+  background-image: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.03) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    var(--glass-shadow);
+}
+
+[data-glass='on'] button,
+[data-glass='on'] a[href] {
+  transition:
+    transform 240ms var(--ease-spring),
+    box-shadow 240ms ease,
+    background-color 200ms ease;
+}
+
+[data-glass='on'] button:hover,
+[data-glass='on'] a[href]:hover {
+  transform: perspective(900px) translateY(-2px) scale(1.012);
+  box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.45);
+}
+
+[data-glass='on'] button:active,
+[data-glass='on'] a[href]:active {
+  transform: perspective(900px) translateY(0) scale(0.985);
+}
+
+[data-glass='on'] [data-slot='dialog-content'],
+[data-glass='on'] [data-slot='dropdown-menu-content'],
+[data-glass='on'] [data-slot='select-content'],
+[data-glass='on'] [data-glass-level='3'] {
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-3-tint), transparent) !important;
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.35)) saturate(var(--glass-sat));
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 26px 60px -24px rgba(0, 0, 0, 0.5);
+}
+
+[data-glass='on'] [data-glass-bar] {
+  background-color: color-mix(in srgb, var(--color-paper) 78%, transparent) !important;
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(var(--glass-sat));
+}
+
+/* 深色下选中项不要亮底反白 */
+[data-theme='dark'] aside a.bg-ink {
+  background-color: rgba(255, 255, 255, 0.11) !important;
+  color: var(--color-ink) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+/* ============================== 减少动效 ============================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-drift,
+  .ps-drift-slow,
+  .ps-fade-up,
+  .ps-fade-in,
+  .ps-fade-out,
+  .ps-enter,
+  .ps-slide-up,
+  .ps-slide-right,
+  .ps-sheet-in,
+  .ps-sheet-out,
+  .ps-panel-in,
+  .ps-pop-in,
+  .ps-badge-in,
+  .ps-backdrop-in,
+  .ps-page-next,
+  .ps-page-prev,
+  .ps-skeleton,
+  .ps-pulse-soft,
+  .ps-num {
+    animation: none !important;
+  }
+
+  .ps-img {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================== 背景 ============================== */
+
+:root {
+  --app-bg: rgba(250, 248, 244, 0.82);
+  --blob-1: radial-gradient(circle, #f7f0e2 0%, rgba(250, 248, 244, 0) 70%);
+  --blob-2: radial-gradient(circle, #eef1f4 0%, rgba(250, 248, 244, 0) 70%);
+}
+
+html,
+body {
+  background-color: transparent;
+}
+
+[data-theme='dark'] {
+  --app-bg: rgba(14, 14, 17, 0.86);
+  --blob-1: radial-gradient(circle, rgba(84, 92, 140, 0.14) 0%, rgba(14, 14, 17, 0) 68%);
+  --blob-2: radial-gradient(circle, rgba(44, 88, 86, 0.12) 0%, rgba(14, 14, 17, 0) 68%);
+}

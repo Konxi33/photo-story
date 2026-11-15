@@ -1,0 +1,45 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+.next/
+out/
+dist/
+dist-electron/
+dist-build/
+*.tsbuildinfo
+next-env.d.ts
+
+# 打包出来的安装包不进仓库（发版走 GitHub Releases / 网盘）
+安装包/
+*.exe
+*.msi
+
+# 运行时数据（含用户的照片与 API Key，绝不能提交）
+data/
+
+# 本地开发者自己的截图 / 探针脚本 / 导出的测试文档
+.shots/
+.devtools/
+*.docx
+*.pptx
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+coverage/
+*.lcov
+
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
