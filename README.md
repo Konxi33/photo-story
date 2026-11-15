@@ -6,6 +6,12 @@
 
 ![照片库](docs/screenshots/gallery.png)
 
+## 下载
+
+- **最新版安装包**：[Releases → latest](https://github.com/Konxi33/photo-story/releases/latest)，文件名形如 `PhotoStory-0.5.6-setup.exe`
+- 每个版本都有独立的中文更新日志（Release 说明里就是全文，仓库里也有 `更新日志_<版本>.md`）
+- 只提供 0.5.6 及之后的安装包：更早的构建里编译进了旧的 API Key，不再分发
+
 ## 它到底做了什么
 
 | 能力 | 说明 |
