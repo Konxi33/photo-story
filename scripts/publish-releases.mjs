@@ -11,7 +11,7 @@
  *
  * 约定：
  * - 标签名 v<版本>，例如 v0.5.6
- * - Release 说明 = 该版本的 更新日志_<版本>.md 全文
+ * - Release 说明 = docs/更新日志_<版本>.md 全文
  * - 附件：<asset-dir>/<版本>/照片故事-<版本>-安装版.exe（存在才挂）
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
@@ -42,14 +42,17 @@ const compare = (a, b) => {
   return 0;
 };
 
-const notes = readdirSync('.')
+/** 更新日志统一放在 docs/ 下（仓库根目录保持干净）。 */
+const NOTES_DIR = 'docs';
+
+const notes = readdirSync(NOTES_DIR)
   .map((name) => /^更新日志_(\d+\.\d+\.\d+)\.md$/.exec(name))
   .filter(Boolean)
-  .map((m) => ({ version: m[1], file: m[0] }))
+  .map((m) => ({ version: m[1], file: `${NOTES_DIR}/${m[0]}` }))
   .sort((a, b) => compare(a.version, b.version));
 
 if (notes.length === 0) {
-  console.error('当前目录没有 更新日志_<版本>.md');
+  console.error('docs/ 下没有 更新日志_<版本>.md');
   process.exit(1);
 }
 

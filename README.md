@@ -9,7 +9,7 @@
 ## 下载
 
 - **最新版安装包**：[Releases → latest](https://github.com/Konxi33/photo-story/releases/latest)，文件名形如 `PhotoStory-0.5.6-setup.exe`
-- 每个版本都有独立的中文更新日志（Release 说明里就是全文，仓库里也有 `更新日志_<版本>.md`）
+- 每个版本都有独立的中文更新日志（Release 说明里就是全文，仓库里也有 `docs/更新日志_<版本>.md`）
 - 只提供 0.5.6 及之后的安装包：更早的构建里编译进了旧的 API Key，不再分发
 
 ## 它到底做了什么
@@ -79,7 +79,7 @@ src/lib            db（IndexedDB）、image、ai、export（docx/pptx/pdf）、
 src/types          领域类型
 electron/          主进程与 preload（窗口、菜单、IPC、文件保存）
 scripts/           构建与发版脚本
-docs/screenshots   README 用的截图
+docs/              截图（docs/screenshots）+ 每个版本的中文更新日志
 ```
 
 ## 技术栈
@@ -88,7 +88,7 @@ Next.js 15（App Router，`output: 'standalone'`）· React 19 · TypeScript str
 
 ## 版本与更新日志
 
-当前版本 **0.5.6**。每个版本都有一份中文更新日志，见仓库根目录 `更新日志_<版本>.md`；应用内「更新日志」页也能看。
+当前版本 **0.5.6**。每个版本都有一份中文更新日志，见 `docs/更新日志_<版本>.md`；应用内「更新日志」页也能看。
 
 ## 已知限制
 
