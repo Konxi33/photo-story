@@ -619,7 +619,7 @@ function SidebarContent({
     // 校正二：任何后续的尺寸变化（窗口缩放、字体加载、用量刷新）都重新落位
     const ro = new ResizeObserver(() => sync());
     ro.observe(root);
-    item.parentElement && ro.observe(item.parentElement);
+    if (item.parentElement) ro.observe(item.parentElement);
 
     return () => {
       cancelAnimationFrame(raf);
