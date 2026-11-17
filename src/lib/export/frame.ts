@@ -4,6 +4,8 @@
 
 import type { FrameStyle, ShootingParams } from '@/types/domain';
 
+import { tidyParam } from './params';
+
 export interface FrameOptions {
   style: FrameStyle;
   watermark: boolean;
@@ -55,12 +57,17 @@ function roundRect(
   ctx.closePath();
 }
 
-/** 生成水印第二行：23mm  f/1.8  1/125s  ISO 100 */
+/** 生成水印第二行：23mm · f/1.8 · 1/125s · ISO 100（与图注同口径，去掉「推测」这类字样） */
 function paramLine(params?: ShootingParams): string {
   if (!params) return '';
-  return [params.focalLength, params.aperture, params.shutter, params.iso]
-    .filter((v) => v && v.trim())
-    .join('   ');
+  return [
+    tidyParam(params.focalLength, 'focal'),
+    tidyParam(params.aperture, 'aperture'),
+    tidyParam(params.shutter, 'shutter'),
+    tidyParam(params.iso, 'iso'),
+  ]
+    .filter((v) => v.trim())
+    .join('  ·  ');
 }
 
 export async function applyFrame(blob: Blob, options: FrameOptions): Promise<Blob> {
@@ -115,9 +122,9 @@ export async function applyFrame(blob: Blob, options: FrameOptions): Promise<Blo
     }
 
     const title = options.device?.trim() || '照片故事';
-    const subtitle = [paramLine(options.params), options.params?.colorGrade]
+    const subtitle = [paramLine(options.params), tidyParam(options.params?.colorGrade, 'color')]
       .filter((v) => v && v.trim())
-      .join('   ');
+      .join('  ·  ');
     const author = options.author?.trim();
 
     const titleSize = Math.max(14, Math.round(barH * 0.26));
@@ -147,7 +154,7 @@ export async function applyFrame(blob: Blob, options: FrameOptions): Promise<Blo
   } else if (watermark) {
     // 白边风格：右下角轻水印
     const size = Math.max(12, Math.round(short * 0.022));
-    const text = [options.device, paramLine(options.params)].filter(Boolean).join('   ');
+    const text = [options.device, paramLine(options.params)].filter(Boolean).join('  ·  ');
     ctx.font = `${size}px "Songti SC","SimSun",serif`;
     const metrics = ctx.measureText(text);
     const pad = Math.round(border * 0.5);

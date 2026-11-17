@@ -1,12 +1,13 @@
 // src/config/app.ts
 // 全局常量与默认值。改行为优先改这里，不要把魔法数字散落到组件里。
 
+import { DEFAULT_BLOCKS } from '@/lib/export/blocks';
 import type { AppSettings, ExportSettings, PhotoErrorCode } from '@/types/domain';
 
 export const APP_NAME = '照片故事' as const;
 export const APP_NAME_EN = 'Photo Story' as const;
 export const APP_DESCRIPTION = '把照片，写成一册随笔' as const;
-export const APP_VERSION = '0.5.6' as const;
+export const APP_VERSION = '0.5.7' as const;
 export const EXPORT_FILENAME_PREFIX = '照片故事' as const;
 
 export const DEFAULT_CONCURRENCY = 3 as const;
@@ -199,6 +200,8 @@ export const DEFAULT_EXPORT_SETTINGS = {
   watermark: false,
   watermarkText: 'Xiaomi 14 Ultra',
   watermarkAuthor: '',
+  // 0.5.7：默认板块 = 0.5.6 的默认版式（序号/标题/图/图注/正文/拍摄手法/标签）
+  blocks: DEFAULT_BLOCKS,
 } as const satisfies ExportSettings;
 
 export const DEFAULT_APP_SETTINGS = {

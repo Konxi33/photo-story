@@ -32,6 +32,7 @@ const AnalyzeRequestSchema = z
           .optional(),
         storyLength: z.enum(['short', 'medium', 'long']).optional(),
         existingTitles: z.array(z.string().max(40)).max(200).optional(),
+        pageHint: z.string().max(400).optional(),
       })
       .optional(),
   })

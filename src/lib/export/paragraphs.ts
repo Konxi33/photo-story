@@ -32,13 +32,15 @@ export function spacerParagraph(cm: number): Paragraph {
 
 export function dividerParagraph(
   widthCm: number,
-  options: { color?: string; sizeEighths?: number; contentWidthCm?: number } = {},
+  options: { color?: string; sizeEighths?: number; contentWidthCm?: number; keepNext?: boolean } = {},
 ): Paragraph {
   const content = options.contentWidthCm ?? 16.6;
   const inset = Math.max(0, (content - widthCm) / 2);
 
   return new Paragraph({
     alignment: AlignmentType.CENTER,
+    // 0.5.7：细线紧跟着标题、下面就是照片——不粘住的话「标题+线」会和照片分到两页
+    keepNext: options.keepNext ?? true,
     indent: { left: cmToTwips(inset), right: cmToTwips(inset) },
     spacing: { before: 0, after: 0, line: 240, lineRule: LineRuleType.AUTO },
     border: {
@@ -94,6 +96,11 @@ export interface BodyOptions {
   spaceAfterPt?: number;
   color?: string;
   keepNext?: boolean;
+  /**
+   * 0.5.7：分页写在段落属性上（pageBreakBefore），而不是单独塞一个分页段落。
+   * 单独的分页段落在「整页粘合」（keepNext 链条）时，一旦内容装不下就会多印一张空白页。
+   */
+  pageBreakBefore?: boolean;
   /** 左右缩进（twips）：让正文块比图片窄一点，打印出来更像画册的「文字栏」 */
   insetTwips?: number;
 }
@@ -106,7 +113,7 @@ export function bodyParagraph(
   return new Paragraph({
     alignment: options.alignment ?? AlignmentType.JUSTIFIED,
     keepNext: options.keepNext,
-    // 0.5.4：打印向 —— 禁止段落首尾出现孤行（一页只剩一行会被切到下一页）
+    pageBreakBefore: options.pageBreakBefore,
     widowControl: true,
     indent: {
       firstLine: options.firstLineTwips,
@@ -137,6 +144,7 @@ export function mixedBodyParagraph(runs: MixedRun[], options: BodyOptions = {}):
   return new Paragraph({
     alignment: options.alignment ?? AlignmentType.JUSTIFIED,
     keepNext: options.keepNext,
+    pageBreakBefore: options.pageBreakBefore,
     widowControl: true,
     indent: {
       firstLine: options.firstLineTwips,

@@ -11,12 +11,14 @@
 // - 「评分卡与解读」开关同样生效，关掉后每页只有图 / 图注 / 正文 / 拍摄手法。
 
 import { AssetRepository } from '@/lib/db';
+import { formatCamera, formatExifLine } from '@/lib/image/exif';
 import { formatDate } from '@/lib/utils';
 import type { ExportSettings, Photo, Project, Technique } from '@/types/domain';
 
+import { type PhotoBlockId, planPhotoPage, resolveBlocks } from './blocks';
 import { applyFrame } from './frame';
 import { encodeImageForDocx } from './image-encode';
-import { tidyParam } from './body';
+import { tidyParam } from './params';
 
 interface Candidate {
   photo: Photo;
@@ -180,88 +182,34 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   const items = (list: Photo[]): Candidate[] =>
     list.map((photo) => ({ photo, dataUrl: encoded.get(photo.id) ?? null }));
 
-  const withDetail = Boolean(settings.includeTechnique && settings.includeScoreDetail);
+  // 0.5.7：PDF 与 Word 共用同一套「板块」顺序（src/lib/export/blocks.ts）。
+  // 用户把「点评」拖到图上面，PDF 里也得在图上面。
+  const blocks = resolveBlocks(settings);
 
-  const photoSection = (
-    { photo, dataUrl }: Candidate,
-    index: number,
-    noBreak = false,
-  ): string => {
+  const photoSection = ({ photo, dataUrl }: Candidate, index: number, noBreak = false): string => {
     const a = photo.status === 'success' ? photo.analysis : undefined;
-    const tech =
-      a && settings.includeTechnique
-        ? TECH_LABELS.filter(({ key }) => a.technique[key] && a.technique[key].trim())
-            .map(
-              ({ key, label }) =>
-                `<div class="tech"><span>${label}</span><p>${escapeHtml(a.technique[key])}</p></div>`,
-            )
-            .join('')
-        : '';
-    const tags =
-      settings.includeTags && a && a.tags.length
-        ? a.tags.map((t) => '#' + escapeHtml(t)).join('&nbsp;&nbsp;')
-        : '';
+    const parts: Partial<Record<PhotoBlockId, string>> = {};
 
-    const paramChips =
-      withDetail && a?.params
-        ? [
-            ['焦段', a.params.focalLength],
-            ['光圈', a.params.aperture],
-            ['快门', a.params.shutter],
-            ['ISO', a.params.iso],
-            ['调色', a.params.colorGrade],
-          ]
-            .filter(([, v]) => v && v.trim())
-            .map(([k, v]) => `<span class="chip"><b>${k}</b>${escapeHtml(v as string)}</span>`)
-            .join('')
-        : '';
+    // 0.5.7：这一页的图片能占多高，交给和 Word 完全相同的预算函数算，
+    // 这样「照片 + 它的全部文字」一定落在同一页里（.page 设了 break-inside: avoid）。
+    const fit = planPhotoPage({
+      photo,
+      settings,
+      contentCm: layout.contentW / 10,
+      contentHeightCm: layout.contentH / 10,
+      hasChapterHeading: noBreak,
+    });
+    const imageRoomMm = Math.max(66, Math.round(fit.imageRoomCm * 10));
 
-    const scoreBlock =
-      withDetail && a?.score
-        ? `<div class="module score">
-             <div class="score-num">${a.score.overall.toFixed(1)}<small>/100</small></div>
-             <div class="score-grid">
-               ${(
-                 [
-                   ['构图', a.score.breakdown.composition],
-                   ['光线', a.score.breakdown.lighting],
-                   ['调色', a.score.breakdown.color],
-                   ['主体', a.score.breakdown.subject],
-                   ['时机', a.score.breakdown.timing],
-                   ['技术', a.score.breakdown.technique],
-                 ] as const
-               )
-                 .map(
-                   ([k, v]) =>
-                     `<div class="bar"><span>${k}</span><i><em style="width:${Math.min(100, v)}%"></em></i><u>${v.toFixed(1)}</u></div>`,
-                 )
-                 .join('')}
-             </div>
-           </div>`
-        : '';
+    if (blocks.includes('index')) parts.index = `<p class="idx">${pad2(index)}</p>`;
+    if (blocks.includes('title')) {
+      parts.title = `<h2>${escapeHtml(a?.title || photo.fileName)}</h2><div class="rule"></div>`;
+    }
+    if (blocks.includes('image') && dataUrl) {
+      parts.image = `<figure><img src="${dataUrl}" alt="${escapeHtml(a?.title || photo.fileName)}" style="max-height:${imageRoomMm}mm"></figure>`;
+    }
 
-    const advice =
-      withDetail && a
-        ? [
-            ['为什么好看', a.whyGood],
-            ['可以更好', a.improve],
-            ['下次这样拍', a.imitate],
-          ].filter(([, list]) => (list as string[]).length > 0)
-        : [];
-
-    const adviceBlock =
-      advice.length > 0
-        ? `<div class="advice">${advice
-            .map(
-              ([label, list]) =>
-                `<div class="card"><p class="card-title">${label}</p>${(list as string[])
-                  .map((item) => `<p class="card-line">· ${escapeHtml(item)}</p>`)
-                  .join('')}</div>`,
-            )
-            .join('')}</div>`
-        : '';
-
-    // 0.5.5：与 Word 对齐 —— 图注默认只写「编号 + 标题」，参数进书末技术附录。
+    // 图注：与 Word 同一口径（编号 + 标题，参数进附录）
     const capStyle = settings.captionStyle ?? 'title';
     const paramLine = a?.params
       ? [
@@ -282,26 +230,114 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
           ? [capTitle, paramLine]
           : [capTitle || paramLine];
     const capText = capParts.filter((v) => v).join(' · ');
-    const caption =
-      settings.captionUnderImage !== false && capText
-        ? `<p class="cap">图 ${pad2(index)} · ${capText}</p>`
+    if (blocks.includes('caption') && capText) {
+      parts.caption = `<p class="cap">图 ${pad2(index)} · ${capText}</p>`;
+    }
+
+    if (blocks.includes('story') && a?.story) {
+      parts.story = `<p class="story">${escapeHtml(a.story)}</p>`;
+    }
+
+    if (blocks.includes('technique') && a) {
+      const tech = TECH_LABELS.filter(({ key }) => a.technique[key] && a.technique[key].trim())
+        .map(
+          ({ key, label }) =>
+            `<div class="tech"><span>${label}</span><p>${escapeHtml(a.technique[key])}</p></div>`,
+        )
+        .join('');
+      if (tech) parts.technique = `<div class="techs">${tech}</div>`;
+    }
+
+    if (blocks.includes('exif') && photo.exif) {
+      const camera = formatCamera(photo.exif);
+      const shot = formatExifLine(photo.exif);
+      const stamp = photo.exif.takenAt
+        ? new Date(photo.exif.takenAt).toLocaleString('zh-CN', { hour12: false })
         : '';
+      const text = [camera, shot, stamp].filter(Boolean).join('　·　');
+      if (text) parts.exif = `<p class="exif">${escapeHtml(text)}</p>`;
+    }
+
+    if (blocks.includes('params') && a?.params) {
+      const chips = [
+        ['焦段', a.params.focalLength],
+        ['光圈', a.params.aperture],
+        ['快门', a.params.shutter],
+        ['ISO', a.params.iso],
+        ['调色', a.params.colorGrade],
+      ]
+        .filter(([, v]) => v && v.trim())
+        .map(([k, v]) => `<span class="chip"><b>${k}</b>${escapeHtml(v as string)}</span>`)
+        .join('');
+      if (chips) parts.params = `<div class="chips">${chips}</div>`;
+    }
+
+    if (blocks.includes('score') && a?.score) {
+      parts.score = `<div class="module score">
+             <div class="score-num">${a.score.overall.toFixed(1)}<small>/100</small></div>
+             <div class="score-grid">
+               ${(
+                 [
+                   ['构图', a.score.breakdown.composition],
+                   ['光线', a.score.breakdown.lighting],
+                   ['调色', a.score.breakdown.color],
+                   ['主体', a.score.breakdown.subject],
+                   ['时机', a.score.breakdown.timing],
+                   ['技术', a.score.breakdown.technique],
+                 ] as const
+               )
+                 .map(
+                   ([k, v]) =>
+                     `<div class="bar"><span>${k}</span><i><em style="width:${Math.min(100, v)}%"></em></i><u>${v.toFixed(1)}</u></div>`,
+                 )
+                 .join('')}
+             </div>
+           </div>`;
+    }
+
+    if (blocks.includes('advice') && a) {
+      const advice = [
+        ['为什么好看', a.whyGood],
+        ['可以更好', a.improve],
+        ['下次这样拍', a.imitate],
+      ].filter(([, list]) => (list as string[]).length > 0);
+      if (advice.length > 0) {
+        parts.advice = `<div class="advice">${advice
+          .map(
+            ([label, list]) =>
+              `<div class="card"><p class="card-title">${label}</p>${(list as string[])
+                .map((item) => `<p class="card-line">· ${escapeHtml(item)}</p>`)
+                .join('')}</div>`,
+          )
+          .join('')}</div>`;
+      }
+    }
+
+    if (blocks.includes('category')) {
+      const category = a?.tags?.[0]?.trim() || a?.mood?.trim() || '';
+      if (category) parts.category = `<p class="category">类别：${escapeHtml(category)}</p>`;
+    }
+
+    if (blocks.includes('tags') && a && a.tags.length) {
+      parts.tags = `<p class="tags">${a.tags.map((t) => '#' + escapeHtml(t)).join('&nbsp;&nbsp;')}</p>`;
+    }
+
+    if (blocks.includes('mood') && a?.mood) {
+      parts.mood = `<p class="mood">氛围：${escapeHtml(a.mood)}</p>`;
+    }
+
+    if (blocks.includes('alt') && a?.alt) {
+      parts.alt = `<p class="alt">无障碍：${escapeHtml(a.alt)}</p>`;
+    }
+
+    const rendered = blocks
+      .map((id) => parts[id] ?? '')
+      .filter(Boolean)
+      .join('\n      ');
 
     return `
-    <section class="page ${noBreak ? '' : 'break'}">
-      ${settings.showIndex ? `<p class="idx">${pad2(index)}</p>` : ''}
-      <h2>${escapeHtml(a?.title || photo.fileName)}</h2>
-      <div class="rule"></div>
-      ${dataUrl ? `<figure><img src="${dataUrl}" alt="${escapeHtml(a?.title || photo.fileName)}"></figure>` : ''}
-      ${caption}
-      ${paramChips ? `<div class="chips">${paramChips}</div>` : ''}
-      ${settings.includeStory && a?.story ? `<p class="story">${escapeHtml(a.story)}</p>` : ''}
-      ${scoreBlock}
-      ${settings.includeTechnique && tech ? `<div class="techs">${tech}</div>` : ''}
-      ${adviceBlock}
-      ${tags ? `<p class="tags">${tags}</p>` : ''}
-      ${settings.includeMood && a?.mood ? `<p class="mood">氛围：${escapeHtml(a.mood)}</p>` : ''}
-      ${settings.includeAlt && a?.alt ? `<p class="alt">无障碍：${escapeHtml(a.alt)}</p>` : ''}
+    <section class="page figure-page ${noBreak ? '' : 'break'}">
+      ${rendered}
     </section>`;
   };
 
@@ -385,6 +421,8 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     font-family: "Source Han Serif SC","Songti SC","SimSun","宋体",serif;
     font-size: 11pt; line-height: 1.7; -webkit-print-color-adjust: exact; }
   .page { break-inside: auto; orphans: 2; widows: 2; }
+  /* 0.5.7：一张照片和它的全部文字必须落在同一页，不许被拆成两页 */
+  .page.figure-page { break-inside: avoid; }
   .page.break { break-before: page; }
   .cover { display:flex; flex-direction:column; align-items:center; justify-content:center;
     min-height: ${coverMinH}mm; text-align:center; }
@@ -406,6 +444,9 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .tech span { flex:0 0 3em; color:#6b6b6b; font-weight:600; }
   .tech p { margin:0; color:#3a3a3a; }
   .tags { text-align:center; font-size:10pt; color:#6b6b6b; margin:10px 0 0; }
+  .exif { text-align:center; font-size:9pt; color:#6b6b6b; margin:8px 0 0;
+    font-variant-numeric: tabular-nums; }
+  .category { text-align:center; font-size:10pt; color:#6b6b6b; margin:10px 0 0; }
   .mood { text-align:center; font-size:10pt; color:#6b6b6b; margin:4px 0 0; }
   .alt { text-align:center; font-size:8.5pt; color:#8a8a8a; margin:4px 0 0; }
 

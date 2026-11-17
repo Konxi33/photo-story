@@ -24,6 +24,7 @@ import {
   Trash2,
   ChevronRight,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { CommandPalette } from '@/components/command-palette';
 import { ShortcutsDialog } from '@/components/shortcuts-dialog';
@@ -36,6 +37,7 @@ import {
   type Appearance,
 } from '@/lib/appearance';
 import { KvRepository } from '@/lib/db';
+import { checkForUpdate, clearPendingUpdate, readPendingUpdate } from '@/lib/updater';
 import { cn, formatBytes, withTimeout } from '@/lib/utils';
 import type { AppSettings, StorageUsage } from '@/types/domain';
 
@@ -188,6 +190,53 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
       }
     })();
   }, []);
+
+  // 0.5.7：启动 6 秒后检查一次新版本（本地 1 小时节流），发现新版用一条 toast 提示。
+  // 这里只引轻量的 updater 模块，不引入任何弹窗组件，避免拖慢首屏。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let alive = true;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const saved =
+            (await withTimeout(
+              KvRepository.get<AppSettings>(STORAGE_KEY_APP_SETTINGS),
+              3000,
+              null,
+            )) ?? null;
+          if (!alive) return;
+          // 用户关掉了「启动时自动检查更新」就什么都不做
+          if (saved?.autoCheckUpdates === false) return;
+
+          await checkForUpdate();
+          if (!alive) return;
+
+          const pending = readPendingUpdate();
+          if (!pending) return;
+
+          toast('发现新版本 v' + pending.latest, {
+            description: '点这里去更新',
+            duration: 8000,
+            action: {
+              label: '去更新',
+              onClick: () => router.push('/settings#update'),
+            },
+          });
+          // 只提醒一次；设置页里还能手动检查
+          clearPendingUpdate();
+        } catch {
+          // 更新检查失败不该影响启动
+        }
+      })();
+    }, 6000);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [router]);
 
   // Ctrl/Cmd + A 守卫
   useEffect(() => {

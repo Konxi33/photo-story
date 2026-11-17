@@ -2,7 +2,17 @@
 // Electron 主进程：启动 Next.js standalone server → 等待就绪 → 打开窗口。
 // 命名为 .cjs 是因为 package.json 里是 "type": "module"。
 
-const { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeTheme, screen } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  dialog,
+  shell,
+  ipcMain,
+  nativeTheme,
+  screen,
+  net,
+} = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -289,6 +299,83 @@ function ensureUninstallShortcut() {
   }
 }
 
+/* ---------------------------- 应用内更新（0.5.7） ---------------------------- */
+/*
+ * 注意：这里一律走 Electron 的 net.fetch / net.request（Chromium 网络栈），
+ * 不能用 Node 的 fetch / https —— 这台机器的 TLS 被中间设备接管，Node 直连
+ * api.github.com 会直接 “fetch failed”。Chromium 栈能正常走系统代理与证书。
+ */
+/*
+ * 0.5.7：不要用 /releases/latest —— GitHub 的「latest」是「最近创建」而不是「版本号最大」，
+ * 补建旧版本（如 v0.3.0）会把指针改回去，实测返回 latest=0.3.0 导致永远不提示更新。
+ * 改成拉列表按语义化版本取最大值。
+ */
+const UPDATE_RELEASES_API = 'https://api.github.com/repos/Konxi33/photo-story/releases?per_page=30';
+/** GitHub 未登录请求限流 60 次/小时，1 小时内复用上次结果 */
+const UPDATE_CHECK_TTL_MS = 60 * 60 * 1000;
+let updateCheckCache = null; // { at: number, payload: object }
+
+/** 只允许从官方 Release 下载，防止渲染进程被注入任意 URL 后被当成下载器 */
+const UPDATE_DOWNLOAD_ALLOWLIST = [
+  'https://github.com/Konxi33/photo-story/releases/download/',
+  'https://objects.githubusercontent.com/',
+];
+
+function isAllowedDownloadUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  return UPDATE_DOWNLOAD_ALLOWLIST.some((prefix) => url.startsWith(prefix));
+}
+
+/** 安装包文件名只保留 ASCII 安全字符，避免路径穿越与中文名乱码 */
+function sanitizeDownloadName(rawName) {
+  const safe = String(rawName || '').replace(/[^A-Za-z0-9._-]/g, '');
+  if (!safe || safe === '.' || safe === '..') return 'photo-story-setup.exe';
+  return safe;
+}
+
+/** 解析成 [major, minor, patch]，允许 “v0.5.7” 或 “0.5.7-beta.1” */
+function parseVersionParts(input) {
+  const matched = String(input || '')
+    .trim()
+    .replace(/^v/i, '')
+    .match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!matched) return null;
+  return [Number(matched[1]), Number(matched[2]), Number(matched[3])];
+}
+
+/** a > b 返回 1，相等 0，小于 -1；解析失败按 0 处理（不会误报有新版） */
+function compareVersion(a, b) {
+  const left = parseVersionParts(a);
+  const right = parseVersionParts(b);
+  if (!left || !right) return 0;
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+/** 在 assets 里找安装包：附件名以 -setup.exe 结尾 */
+function pickSetupAsset(assets) {
+  if (!Array.isArray(assets)) return null;
+  const hit = assets.find(
+    (asset) => asset && typeof asset.name === 'string' && /-setup\.exe$/i.test(asset.name),
+  );
+  if (!hit) return null;
+  return {
+    url: typeof hit.browser_download_url === 'string' ? hit.browser_download_url : null,
+    name: hit.name,
+    size: typeof hit.size === 'number' ? hit.size : null,
+  };
+}
+
+/** 渲染进程的窗口可能已经销毁，webContents 也可能为 null */
+function sendToRenderer(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const contents = mainWindow.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  contents.send(channel, payload);
+}
+
 function registerIpc() {
   ipcMain.handle('app:paths', () => ({
     userData: app.getPath('userData'),
@@ -501,6 +588,229 @@ function registerIpc() {
       } catch {
         // 忽略
       }
+    }
+  });
+
+  /*
+   * 0.5.7：检查 GitHub Release 有没有新版本。
+   * 入参：{ force?: boolean }（force 跳过 1 小时缓存）
+   * 返回：{ ok: true, current, latest, hasUpdate, notes, assetUrl, assetName, assetSize, publishedAt }
+   *       或 { ok: false, error }（网络/解析失败不 throw 到渲染进程）
+   */
+  ipcMain.handle('update:check', async (_event, options) => {
+    const force = Boolean(options && options.force);
+    const now = Date.now();
+    if (!force && updateCheckCache && now - updateCheckCache.at < UPDATE_CHECK_TTL_MS) {
+      return updateCheckCache.payload;
+    }
+
+    try {
+      const response = await net.fetch(UPDATE_RELEASES_API, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'photo-story',
+        },
+      });
+
+      if (!response.ok) {
+        const hint =
+          response.status === 403 || response.status === 429
+            ? 'GitHub 接口调用太频繁（每小时 60 次），请过一会儿再试'
+            : 'GitHub 返回 HTTP ' + response.status;
+        return { ok: false, error: hint };
+      }
+
+      const list = await response.json();
+      if (!Array.isArray(list) || list.length === 0) {
+        return { ok: false, error: 'GitHub 上还没有任何 Release' };
+      }
+
+      // 只保留正式版本（跳过 draft / prerelease），再按版本号取最大
+      const candidates = list.filter(
+        (item) => item && !item.draft && !item.prerelease && parseVersionParts(item.tag_name),
+      );
+      if (candidates.length === 0) return { ok: false, error: 'Release 里没有读到版本号' };
+      const release = candidates.reduce((best, item) =>
+        compareVersion(item.tag_name, best.tag_name) > 0 ? item : best,
+      );
+
+      const current = app.getVersion();
+      const latest = String((release && release.tag_name) || '')
+        .replace(/^v/i, '')
+        .trim();
+      if (!latest) return { ok: false, error: 'Release 里没有读到版本号（tag_name 为空）' };
+
+      const asset = pickSetupAsset(release && release.assets);
+      const payload = {
+        ok: true,
+        current,
+        latest,
+        hasUpdate: compareVersion(latest, current) > 0,
+        notes: typeof release.body === 'string' ? release.body : '',
+        assetUrl: asset ? asset.url : null,
+        assetName: asset ? asset.name : null,
+        assetSize: asset ? asset.size : null,
+        publishedAt:
+          release && typeof release.published_at === 'string' ? release.published_at : null,
+      };
+
+      updateCheckCache = { at: now, payload };
+      return payload;
+    } catch (error) {
+      return {
+        ok: false,
+        error: '检查更新失败：' + (error instanceof Error ? error.message : String(error)),
+      };
+    }
+  });
+
+  /*
+   * 0.5.7：流式下载安装包到 %TEMP%\photo-story-update。
+   * 入参：{ url, fileName }
+   * 返回：{ ok: true, filePath } 或 { ok: false, error }
+   * 下载过程中通过 'update:progress' 事件上报 { received, total }。
+   */
+  ipcMain.handle('update:download', async (_event, payload) => {
+    const url = payload && typeof payload.url === 'string' ? payload.url : '';
+    const rawName = payload && typeof payload.fileName === 'string' ? payload.fileName : '';
+
+    if (!isAllowedDownloadUrl(url)) {
+      return { ok: false, error: '下载地址不在允许范围内（只允许官方 Release 地址）' };
+    }
+
+    const dir = path.join(app.getPath('temp'), 'photo-story-update');
+    const filePath = path.join(dir, sanitizeDownloadName(rawName));
+
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+    } catch (error) {
+      return {
+        ok: false,
+        error: '创建下载目录失败：' + (error instanceof Error ? error.message : String(error)),
+      };
+    }
+
+    const file = fs.createWriteStream(filePath);
+    let received = 0;
+    let total = 0;
+    let lastSentAt = 0;
+    let settled = false;
+
+    return await new Promise((resolve) => {
+      const settle = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      const fail = (message) => {
+        if (settled) return;
+        settled = true;
+        try {
+          file.destroy();
+        } catch {
+          // 忽略
+        }
+        try {
+          fs.unlink(filePath, () => undefined);
+        } catch {
+          // 忽略
+        }
+        resolve({ ok: false, error: message });
+      };
+
+      const request = net.request({ method: 'GET', url, redirect: 'follow' });
+      request.setHeader('User-Agent', 'photo-story');
+      request.setHeader('Accept', 'application/octet-stream');
+
+      // 进度最多 5 次/秒，避免刷爆渲染进程
+      const report = (force) => {
+        const at = Date.now();
+        if (!force && at - lastSentAt < 200) return;
+        lastSentAt = at;
+        sendToRenderer('update:progress', { received, total });
+      };
+
+      request.on('response', (response) => {
+        const status = Number(response.statusCode) || 0;
+        if (status !== 200) {
+          response.on('error', () => undefined);
+          try {
+            response.resume();
+          } catch {
+            // 忽略
+          }
+          try {
+            request.abort();
+          } catch {
+            // 忽略
+          }
+          fail('下载失败：HTTP ' + status);
+          return;
+        }
+
+        total = Number(response.headers['content-length']) || 0;
+        report(true);
+
+        response.on('data', (chunk) => {
+          if (settled) return;
+          received += chunk.length;
+          file.write(chunk);
+          report(false);
+        });
+
+        response.on('end', () => {
+          if (settled) return;
+          file.end(() => {
+            if (settled) return;
+            report(true);
+            settle({ ok: true, filePath });
+          });
+        });
+
+        response.on('error', (error) => {
+          fail('下载中断：' + (error instanceof Error ? error.message : String(error)));
+        });
+      });
+
+      request.on('error', (error) => {
+        fail('下载失败：' + (error instanceof Error ? error.message : String(error)));
+      });
+
+      file.on('error', (error) => {
+        try {
+          request.abort();
+        } catch {
+          // 忽略
+        }
+        fail('写入安装包失败：' + (error instanceof Error ? error.message : String(error)));
+      });
+
+      request.end();
+    });
+  });
+
+  /*
+   * 0.5.7：启动 NSIS 安装包，然后退出应用让安装程序接管。
+   * 入参：filePath（update:download 返回的路径）
+   * 返回：{ ok: true } 或 { ok: false, error }
+   */
+  ipcMain.handle('update:install', async (_event, filePath) => {
+    const target = typeof filePath === 'string' ? filePath.trim() : '';
+    if (!target) return { ok: false, error: '缺少安装包路径' };
+    if (!/\.exe$/i.test(target)) return { ok: false, error: '不是有效的安装程序' };
+    if (!fs.existsSync(target)) return { ok: false, error: '安装包不存在，请重新下载' };
+
+    try {
+      spawn(target, [], { detached: true, stdio: 'ignore' }).unref();
+      // 给渲染进程留出显示「安装程序已启动」的时间
+      setTimeout(() => app.quit(), 800);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: '启动安装程序失败：' + (error instanceof Error ? error.message : String(error)),
+      };
     }
   });
 }

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bug,
   Check,
+  Download,
   Eye,
   EyeOff,
   FolderOpen,
@@ -68,7 +69,15 @@ import {
 import { KvRepository } from '@/lib/db';
 import { FRAME_PRESETS } from '@/lib/export/frame';
 import { applyAppearance } from '@/lib/appearance';
+import {
+  checkForUpdate,
+  clearPendingUpdate,
+  describeSize,
+  downloadAndInstall,
+  readPendingUpdate,
+} from '@/lib/updater';
 import { cn, formatBytes, withTimeout } from '@/lib/utils';
+import type { UpdateInfo } from '@/lib/updater';
 import type {
   AiConfigPublic,
   AiProvider,
@@ -143,6 +152,20 @@ export default function SettingsPage() {
   const [exportDir, setExportDir] = useState('');
   const [revealAfterExport, setRevealAfterExport] = useState(true);
 
+  // 0.5.7：版本更新
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateResult, setUpdateResult] = useState<{
+    ok: boolean;
+    info?: UpdateInfo;
+    error?: string;
+  } | null>(null);
+  const [updateDownloading, setUpdateDownloading] = useState(false);
+  /** -1 = 服务端没给文件大小，只能显示「下载中」 */
+  const [updateProgress, setUpdateProgress] = useState(-1);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateNotesOpen, setUpdateNotesOpen] = useState(false);
+
   const [dataDir, setDataDir] = useState('');
   const [zoom, setZoom] = useState(1);
   const [uninstallOpen, setUninstallOpen] = useState(false);
@@ -162,6 +185,12 @@ export default function SettingsPage() {
     void api?.getZoom?.().then((value) => {
       if (typeof value === 'number') setZoom(value);
     });
+  }, []);
+
+  // 0.5.7：上次检查留下过「有新版本」的记录（比如启动时 toast 提示过），进本页先显示出来
+  useEffect(() => {
+    const pending = readPendingUpdate();
+    if (pending) setUpdateResult({ ok: true, info: pending });
   }, []);
 
   // 外观开关实时预览：不用保存也能看到主题/玻璃/字体效果
@@ -226,6 +255,7 @@ export default function SettingsPage() {
         setDefaultFrame(s.defaultFrame ?? 'none');
         setExportDir(s.exportDir ?? '');
         setRevealAfterExport(s.revealAfterExport !== false);
+        setAutoCheckUpdates(s.autoCheckUpdates !== false);
       } catch {
         // 忽略
       }
@@ -291,6 +321,7 @@ export default function SettingsPage() {
         defaultFrame,
         exportDir,
         revealAfterExport,
+        autoCheckUpdates,
       }),
     [
       provider,
@@ -324,6 +355,7 @@ export default function SettingsPage() {
       defaultFrame,
       exportDir,
       revealAfterExport,
+      autoCheckUpdates,
     ],
   );
 
@@ -337,7 +369,7 @@ export default function SettingsPage() {
 
   // 0.5.1：二级菜单跟随滚动高亮
   useEffect(() => {
-    const ids = ['ai', 'style', 'gen', 'look', 'photo', 'app', 'store'];
+    const ids = ['ai', 'style', 'gen', 'look', 'photo', 'app', 'update', 'store'];
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries
@@ -416,6 +448,7 @@ export default function SettingsPage() {
         defaultFrame,
         exportDir,
         revealAfterExport,
+        autoCheckUpdates,
       };
       await KvRepository.set(STORAGE_KEY_APP_SETTINGS, appSettings);
 
@@ -459,6 +492,54 @@ export default function SettingsPage() {
     if (!result.ok) toast.error('打开失败', { description: result.message });
   };
 
+  // 0.5.7：手动检查更新（force=true 跳过 1 小时节流）
+  const handleCheckUpdate = async (): Promise<void> => {
+    setUpdateChecking(true);
+    setUpdateInstalling(false);
+    setUpdateNotesOpen(false);
+    const result = await checkForUpdate(true);
+    setUpdateResult(result);
+    setUpdateChecking(false);
+
+    if (!result.ok) {
+      toast.error('检查更新失败', { description: result.error });
+      return;
+    }
+    if (result.info?.hasUpdate) {
+      toast.success('发现新版本 v' + result.info.latest, {
+        description: '可以在这里直接下载并安装',
+      });
+    } else {
+      toast.success('已是最新版本', { description: '当前 v' + (result.info?.current ?? APP_VERSION) });
+    }
+  };
+
+  // 0.5.7：下载 → 自动拉起安装程序 → 应用退出
+  const handleDownloadAndInstall = async (info: UpdateInfo): Promise<void> => {
+    setUpdateDownloading(true);
+    setUpdateProgress(-1);
+    const result = await downloadAndInstall(info, (progress) => {
+      setUpdateProgress(
+        progress.total > 0
+          ? Math.min(100, Math.round((progress.received / progress.total) * 100))
+          : -1,
+      );
+    });
+    setUpdateDownloading(false);
+
+    if (!result.ok) {
+      toast.error('下载或安装失败', { description: result.error });
+      return;
+    }
+
+    setUpdateInstalling(true);
+    clearPendingUpdate();
+    toast.success('安装程序已启动', { description: '软件会退出，请按安装向导完成更新' });
+  };
+
+  // ok 且有 info 时抽出「当前展示的更新信息」，避免 JSX 里反复写 updateResult?.info
+  const pendingInfo = updateResult?.ok ? updateResult.info : undefined;
+
   return (
     <AppShell
       actions={
@@ -500,6 +581,7 @@ export default function SettingsPage() {
             ['look', '外观'],
             ['photo', '照片与相框'],
             ['app', '应用'],
+            ['update', '版本更新'],
             ['store', '存储与导出'],
           ].map(([id, label]) => (
             <button
@@ -926,6 +1008,125 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {/* 版本更新（0.5.7） */}
+        <Section
+          id="update"
+          icon={<Download className="h-4 w-4" />}
+          title="版本更新"
+          desc="从 GitHub Release 检查并安装新版本"
+        >
+          <Row
+            label="启动时自动检查更新"
+            desc="每次启动在后台查一次；关掉后只能用下面的按钮手动检查"
+          >
+            <Switch
+              aria-label="启动时自动检查更新"
+              checked={autoCheckUpdates}
+              onCheckedChange={setAutoCheckUpdates}
+            />
+          </Row>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-[12.5px] text-ink-mid">当前版本 v{APP_VERSION}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ps-pressable"
+              disabled={updateChecking || updateDownloading}
+              onClick={() => void handleCheckUpdate()}
+            >
+              {updateChecking ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-1.5 h-4 w-4" />
+              )}
+              {updateChecking ? '检查中…' : '检查更新'}
+            </Button>
+          </div>
+
+          {updateResult && !updateResult.ok && (
+            <p className="text-[11.5px] leading-relaxed text-amber-700 dark:text-amber-400">
+              检查失败：{updateResult.error ?? '未知原因'}
+            </p>
+          )}
+
+          {updateResult?.ok && updateResult.info && !updateResult.info.hasUpdate && (
+            <p className="text-[11.5px] text-emerald-700 dark:text-emerald-400">
+              已是最新版本 v{updateResult.info.current}
+            </p>
+          )}
+
+          {pendingInfo && pendingInfo.hasUpdate && (
+            <div className="grid gap-2.5 rounded-lg border border-line/60 bg-surface/50 p-3">
+              <p className="text-[12.5px] text-ink">
+                有新版本 v{pendingInfo.latest}
+                {pendingInfo.publishedAt && (
+                  <span className="ml-1.5 text-[11px] text-ink-faint">
+                    · 发布于 {formatPublishDate(pendingInfo.publishedAt)}
+                  </span>
+                )}
+              </p>
+
+              {pendingInfo.assetName && (
+                <p className="text-[11.5px] text-ink-faint">
+                  安装包 {pendingInfo.assetName} · {describeSize(pendingInfo.assetSize)}
+                </p>
+              )}
+
+              {pendingInfo.notes && (
+                <div className="grid gap-1.5">
+                  <button
+                    type="button"
+                    className="ps-pressable w-fit text-[11.5px] text-ink-mid underline decoration-line/70 underline-offset-2 hover:text-ink"
+                    onClick={() => setUpdateNotesOpen((open) => !open)}
+                  >
+                    {updateNotesOpen ? '收起更新说明' : '查看更新说明'}
+                  </button>
+                  {updateNotesOpen && (
+                    <pre className="max-h-64 overflow-auto rounded-md border border-line/50 bg-surface-2/40 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-mid">
+                      {pendingInfo.notes}
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="ps-pressable"
+                  disabled={updateDownloading || updateInstalling}
+                  onClick={() => {
+                    if (pendingInfo) void handleDownloadAndInstall(pendingInfo);
+                  }}
+                >
+                  {updateDownloading ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-1.5 h-4 w-4" />
+                  )}
+                  {updateDownloading ? '下载中…' : '下载并安装'}
+                </Button>
+                {updateDownloading && (
+                  <span className="text-[11.5px] tabular-nums text-ink-mid">
+                    {updateProgress >= 0 ? '已下载 ' + updateProgress + '%' : '正在下载安装包…'}
+                  </span>
+                )}
+                {updateInstalling && (
+                  <span className="text-[11.5px] text-emerald-700 dark:text-emerald-400">
+                    安装程序已启动，软件会退出
+                  </span>
+                )}
+              </div>
+
+              {!pendingInfo.assetUrl && (
+                <p className="text-[11.5px] text-ink-faint">
+                  这个版本没上传安装包，只能去 GitHub Releases 手动下载。
+                </p>
+              )}
+            </div>
+          )}
+        </Section>
+
         {/* 存储 */}
         <Section id="store" title="存储与导出" desc="数据位置、导出文件夹与占用">
           <Field label="导出文件夹">
@@ -1088,4 +1289,12 @@ function Row({
       {children}
     </div>
   );
+}
+
+/** 0.5.7：把 GitHub 的 ISO 时间（2026-11-01T12:00:00Z）压成「2026-11-01」 */
+function formatPublishDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
 }

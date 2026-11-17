@@ -112,6 +112,7 @@ export async function runBatchAnalysis(options: BatchAnalyzeOptions): Promise<Ba
             narrativeStyle: style?.narrativeStyle,
             storyLength: style?.storyLength,
             existingTitles: [...usedTitles],
+            pageHint: style?.pageHint,
           });
         } finally {
           clearTimeout(timer);

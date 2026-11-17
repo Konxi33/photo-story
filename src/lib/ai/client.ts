@@ -3,6 +3,7 @@
 
 import { API_ROUTES, PHOTO_ERROR_LABELS } from '@/config/app';
 import type { JudgeId } from '@/config/scorePrompt';
+import { modelFamily } from '@/lib/score/calibrate';
 import { refineScore } from '@/lib/score/blend';
 import type {
   AnalyzeResult,
@@ -52,9 +53,11 @@ export async function analyzePhotoLocally(
 
   const result = await postAnalyze({ photoId, imageBase64, mimeType, style }, signal);
 
-  // 整篇生成也带评分时，用同一套像素指标做混合，保证两种入口分数口径一致
+  // 整篇生成也带评分时，用同一套像素指标做混合，保证两种入口分数口径一致；
+  // 同时把模型家族传进去，不同模型的分先校准到同一把尺（见 score/calibrate.ts）。
   if (result.ok && result.analysis.score) {
-    const refined = await refineScore(result.analysis.score, imageBlob);
+    const family = modelFamily(undefined, result.meta.model);
+    const refined = await refineScore(result.analysis.score, imageBlob, family);
     return { ...result, analysis: { ...result.analysis, score: refined.score } };
   }
   return result;
@@ -109,8 +112,10 @@ export async function scorePhotoLocally(
     const parsed = JSON.parse(text) as ScoreResult;
     if (parsed && typeof parsed === 'object' && 'ok' in parsed) {
       if (parsed.ok) {
-        // 与像素指标混合，避免模型把所有照片打成一个分数
-        const refined = await refineScore(parsed.score, imageBlob);
+        // 与像素指标混合，避免模型把所有照片打成一个分数；
+        // 模型分先按 meta.model 做家族校准，换模型不会换一把尺。
+        const family = modelFamily(undefined, parsed.meta.model);
+        const refined = await refineScore(parsed.score, imageBlob, family);
         return { ...parsed, score: refined.score };
       }
       return parsed;

@@ -2,7 +2,33 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, FolderOpen, Loader2, Presentation, Printer, Sparkles } from 'lucide-react';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  FileText,
+  FolderOpen,
+  GripVertical,
+  LayoutTemplate,
+  Loader2,
+  Minus,
+  Plus,
+  Presentation,
+  Printer,
+  Sparkles,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -29,6 +55,18 @@ import { Switch } from '@/components/ui/switch';
 import { ProjectRepository } from '@/lib/db';
 import { readBook } from '@/lib/book/store';
 import { clearImageCache, exportToDocx, exportToPdf, exportToPptx } from '@/lib/export';
+import {
+  BLOCKS,
+  BLOCK_MAP,
+  DEFAULT_BLOCKS,
+  TEMPLATES,
+  applyBlocks,
+  getTemplate,
+  planPhotoPage,
+  resolveBlocks,
+  type PhotoBlockId,
+} from '@/lib/export/blocks';
+import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
 import { FRAME_PRESETS } from '@/lib/export/frame';
 import { listPresets, removePreset, savePreset, type ExportPreset } from '@/lib/export/presets';
 import {
@@ -93,6 +131,10 @@ export function ExportDialog({
   // 0.5.5：图注写什么 —— 摄影集默认只写编号 + 标题，参数进书末技术附录
   const [captionStyle, setCaptionStyle] = useState<'title' | 'param' | 'both'>('title');
   const [includeScoreDetail, setIncludeScoreDetail] = useState(false);
+
+  // 0.5.7：这一页印哪些板块、按什么顺序 —— 用户拖出来的就是它
+  const [blocks, setBlocks] = useState<PhotoBlockId[]>(DEFAULT_BLOCKS);
+  const [templateId, setTemplateId] = useState('');
 
   // 0.5.6：导出预设——把一整套排版选项存成「方案」，换项目也能一键套用
   const [presets, setPresets] = useState<ExportPreset[]>([]);
@@ -173,6 +215,8 @@ export function ExportDialog({
     setCaptionUnderImage(s.captionUnderImage !== false);
     setCaptionStyle(s.captionStyle ?? 'title');
     setIncludeScoreDetail(s.includeScoreDetail === true);
+    setBlocks(resolveBlocks(s));
+    setTemplateId(s.templateId ?? '');
   };
 
   useEffect(() => {
@@ -223,28 +267,82 @@ export function ExportDialog({
 
   const disabled = selectedPhotos.length === 0 || exporting;
 
-  const buildSettings = (): ExportSettings => ({
-    ...project.exportSettings,
-    includeCover,
-    includeOverview,
-    pageBreakPerPhoto,
-    layout,
-    imageQuality,
-    overviewColumns: overviewColumns === '2' ? 2 : 3,
-    orientation,
-    margins,
-    bodyColumns: bodyColumns === '2' ? 2 : 1,
-    lineSpacing: Number(lineSpacing) as 1.4 | 1.6 | 1.8,
-    showIndex,
-    frame,
-    watermark,
-    watermarkText,
-    watermarkAuthor,
-    paperSize,
-    gutter: Number(gutter) as 0 | 0.5 | 1,
-    captionUnderImage,
-    includeScoreDetail,
-  });
+  const buildSettings = (): ExportSettings =>
+    applyBlocks(
+      {
+        ...project.exportSettings,
+        includeCover,
+        includeOverview,
+        pageBreakPerPhoto,
+        layout,
+        imageQuality,
+        overviewColumns: overviewColumns === '2' ? 2 : 3,
+        orientation,
+        margins,
+        bodyColumns: bodyColumns === '2' ? 2 : 1,
+        lineSpacing: Number(lineSpacing) as 1.4 | 1.6 | 1.8,
+        showIndex,
+        frame,
+        watermark,
+        watermarkText,
+        watermarkAuthor,
+        paperSize,
+        gutter: Number(gutter) as 0 | 0.5 | 1,
+        captionUnderImage,
+        captionStyle,
+        includeScoreDetail,
+        blocks,
+        templateId,
+      },
+      blocks,
+    );
+
+  /** 套用固定模板：把板块顺序与相关开关一起灌进去 */
+  const handlePickTemplate = (id: string): void => {
+    const template = getTemplate(id);
+    if (!template) return;
+    const next: ExportSettings = {
+      ...buildSettings(),
+      ...template.patch,
+      blocks: template.blocks,
+      templateId: id,
+    };
+    applySettings(next);
+    setBlocks(template.blocks);
+    setTemplateId(id);
+    toast.success(`已套用「${template.name}」`, { description: template.hint });
+  };
+
+  const toggleBlock = (id: PhotoBlockId): void => {
+    setTemplateId('');
+    setBlocks((prev) => {
+      if (prev.includes(id)) {
+        if (prev.length <= 1) {
+          toast.error('至少留一个板块');
+          return prev;
+        }
+        return prev.filter((item) => item !== id);
+      }
+      // 新增的板块按 BLOCKS 的推荐顺序插入，避免用户手动拖到底部
+      const recommended = BLOCKS.findIndex((meta) => meta.id === id);
+      const out = [...prev];
+      const insertAt = out.findIndex((item) => BLOCKS.findIndex((meta) => meta.id === item) > recommended);
+      out.splice(insertAt < 0 ? out.length : insertAt, 0, id);
+      return out;
+    });
+  };
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  const handleDragEnd = (event: DragEndEvent): void => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = blocks.indexOf(active.id as PhotoBlockId);
+    const to = blocks.indexOf(over.id as PhotoBlockId);
+    if (from < 0 || to < 0) return;
+    setTemplateId('');
+    setBlocks(arrayMove(blocks, from, to));
+  };
 
   const pickOutputDir = async (): Promise<void> => {
     const api = typeof window !== 'undefined' ? window.photoStory : undefined;
@@ -350,6 +448,52 @@ export function ExportDialog({
   };
 
   const isWordLike = format !== 'pptx';
+
+  /** 用一张真实照片试算：图上还能剩多高、会不会被迫让位 */
+  const pageFit = useMemo(() => {
+    if (!isWordLike || selectedPhotos.length === 0) return null;
+    const sample = selectedPhotos.find((photo) => photo.status === 'success') ?? selectedPhotos[0];
+    const settings: ExportSettings = applyBlocks(
+      {
+        ...project.exportSettings,
+        layout,
+        orientation,
+        margins,
+        showIndex,
+        paperSize,
+        gutter: Number(gutter) as 0 | 0.5 | 1,
+        captionUnderImage,
+        captionStyle,
+        includeScoreDetail,
+        blocks,
+      },
+      blocks,
+    );
+    const contentHeightCm = exportContentHeightCm(settings);
+    const fit = planPhotoPage({
+      photo: sample,
+      settings,
+      contentCm: exportContentCm(settings),
+      contentHeightCm,
+    });
+    return { fit, contentHeightCm };
+  }, [
+    isWordLike,
+    selectedPhotos,
+    project.exportSettings,
+    layout,
+    orientation,
+    margins,
+    showIndex,
+    paperSize,
+    gutter,
+    captionUnderImage,
+    captionStyle,
+    includeScoreDetail,
+    blocks,
+  ]);
+
+  const unusedBlocks = BLOCKS.filter((meta) => !blocks.includes(meta.id));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -480,41 +624,88 @@ export function ExportDialog({
             <SettingRow label="每张另起一页">
               <Switch aria-label="每张另起一页" checked={pageBreakPerPhoto} onCheckedChange={setPageBreakPerPhoto} />
             </SettingRow>
-            <SettingRow label="显示序号">
-              <Switch aria-label="显示序号" checked={showIndex} onCheckedChange={setShowIndex} />
-            </SettingRow>
-            <SettingRow label="图下小字">
-              <div className="flex items-center gap-2">
-                <Select
-                  value={captionUnderImage ? captionStyle : 'none'}
-                  onValueChange={(v) => {
-                    if (v === 'none') {
-                      setCaptionUnderImage(false);
-                      return;
-                    }
-                    setCaptionUnderImage(true);
-                    setCaptionStyle(v as 'title' | 'param' | 'both');
-                  }}
-                >
-                  <SelectTrigger className="w-[136px]" aria-label="图下小字写什么"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="title">编号 + 标题</SelectItem>
-                    <SelectItem value="param">编号 + 参数</SelectItem>
-                    <SelectItem value="both">标题 + 参数</SelectItem>
-                    <SelectItem value="none">不印</SelectItem>
-                  </SelectContent>
-                </Select>
+
+            {/* 页面拼装：拖出来的顺序就是印出来的顺序 */}
+            <div className="rounded-[12px] border border-line/60 bg-surface/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                  <LayoutTemplate className="h-3.5 w-3.5 text-ink-faint" />
+                  一页印什么
+                </span>
+                <span className="text-[10.5px] text-ink-faint">拖动左侧手柄调顺序</span>
               </div>
-            </SettingRow>
-            <SettingRow label="评分卡与解读">
-              <Switch aria-label="评分卡与解读" checked={includeScoreDetail} onCheckedChange={setIncludeScoreDetail} />
-            </SettingRow>
-            {!includeScoreDetail ? (
-              <p className="pl-1 text-[11px] leading-relaxed text-ink-faint">
-                关掉后每页只放一张大图、图注、正文和拍摄手法 —— 打印出来更像摄影集。
-                打开会把参数表、评分卡、三块建议一起印上，图会相应变小，内容多的照片可能多占一页。
-              </p>
-            ) : null}
+
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    title={template.hint}
+                    onClick={() => handlePickTemplate(template.id)}
+                    className={cn(
+                      'rounded-full border px-2.5 py-[5px] text-[11px] leading-none transition-colors duration-150',
+                      templateId === template.id
+                        ? 'border-ink/70 bg-ink text-surface'
+                        : 'border-line/70 text-ink-soft hover:border-ink/25 hover:text-ink',
+                    )}
+                  >
+                    {template.name}
+                  </button>
+                ))}
+              </div>
+
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={blocks} strategy={verticalListSortingStrategy}>
+                  <ul className="mt-2.5 grid gap-1">
+                    {blocks.map((id, index) => (
+                      <BlockRow
+                        key={id}
+                        id={id}
+                        index={index}
+                        dropped={pageFit?.fit.dropped.includes(id) ?? false}
+                        onRemove={() => toggleBlock(id)}
+                        canRemove={blocks.length > 1}
+                      />
+                    ))}
+                  </ul>
+                </SortableContext>
+              </DndContext>
+
+              {unusedBlocks.length > 0 ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/40 pt-2">
+                  <span className="text-[10.5px] text-ink-faint">加一块：</span>
+                  {unusedBlocks.map((meta) => (
+                    <button
+                      key={meta.id}
+                      type="button"
+                      title={meta.hint}
+                      onClick={() => toggleBlock(meta.id)}
+                      className="flex items-center gap-0.5 rounded-full border border-line/60 px-2 py-[3px] text-[10.5px] text-ink-soft transition-colors duration-150 hover:border-ink/25 hover:text-ink"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      {meta.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {pageFit ? (
+                <p
+                  className={cn(
+                    'mt-2 text-[10.5px] leading-relaxed',
+                    pageFit.fit.dropped.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-ink-faint',
+                  )}
+                >
+                  {pageFit.fit.dropped.length > 0
+                    ? `按这个顺序排，最近那张照片的「${pageFit.fit.dropped
+                        .map((id) => BLOCK_MAP[id]?.label ?? id)
+                        .join('、')}」放不下，导出时会自动省掉 —— 想全留着就少勾几块。`
+                    : `试算：图片最高约 ${pageFit.fit.imageRoomCm.toFixed(1)}cm，整页填充 ${Math.round(
+                        pageFit.fit.fillRatio * 100,
+                      )}%。一张照片连同文字只占一页，不会被拆到两页。`}
+                </p>
+              ) : null}
+            </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
               <SettingRow label="纸张">
@@ -759,5 +950,56 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
       <Label className="text-[13px] font-normal text-ink-mid">{label}</Label>
       {children}
     </div>
+  );
+}
+
+function BlockRow({
+  id,
+  index,
+  dropped,
+  canRemove,
+  onRemove,
+}: {
+  id: PhotoBlockId;
+  index: number;
+  dropped: boolean;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const meta = BLOCK_MAP[id];
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined }}
+      className={cn(
+        'group/block flex items-center gap-1.5 rounded-[8px] border px-1.5 py-[5px] transition-colors duration-150',
+        dropped ? 'border-amber-500/40 bg-amber-500/5' : 'border-line/45 bg-surface/60',
+        isDragging && 'border-ink/40 shadow-[var(--elev-2)]',
+      )}
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`拖动「${meta?.label ?? id}」调整顺序`}
+        className="cursor-grab touch-none text-ink-faint/50 transition-colors hover:text-ink active:cursor-grabbing"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <span className="w-4 text-center font-mono text-[10px] text-ink-faint/70">{index + 1}</span>
+      <span className="text-[12px] text-ink">{meta?.label ?? id}</span>
+      <span className="min-w-0 flex-1 truncate text-[10px] text-ink-faint">{dropped ? '装不下会省掉' : meta?.hint}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={!canRemove}
+        aria-label={`不印「${meta?.label ?? id}」`}
+        className="shrink-0 rounded p-0.5 text-ink-faint/60 transition-colors hover:text-ink disabled:opacity-30"
+      >
+        <Minus className="h-3 w-3" />
+      </button>
+    </li>
   );
 }

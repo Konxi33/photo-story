@@ -35,6 +35,7 @@ import {
   STORAGE_KEY_APP_SETTINGS,
 } from '@/config/app';
 import { analyzePhotoLocally, runBatchAnalysis } from '@/lib/ai';
+import { pageHint } from '@/lib/export/blocks';
 import { scorePhoto } from '@/lib/score/dispatch';
 import { AssetRepository, KvRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import type {
@@ -484,6 +485,8 @@ export default function WorkbenchPage() {
           existingTitles: photos
             .map((p) => p.analysis?.title)
             .filter((t): t is string => Boolean(t && t.trim())),
+          // 0.5.7：文案跟着导出版面走（用户拼好的那一页印不下长文）
+          pageHint: project ? pageHint(project.exportSettings) : undefined,
         },
         onPhotoStart: (id) => {
           setPhotos((prev) =>
@@ -677,6 +680,7 @@ export default function WorkbenchPage() {
           narrativeStyle: genSettings.narrativeStyle,
           storyLength: genSettings.storyLength,
           existingTitles: [],
+          pageHint: project ? pageHint(project.exportSettings) : undefined,
         },
         onPhotoStart: (id) => {
           setPhotos((prev) =>

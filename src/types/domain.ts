@@ -1,6 +1,9 @@
 // src/types/domain.ts
 // 领域模型：浏览器与服务端共用的纯类型，不含任何运行时依赖。
 
+// 0.5.7：板块 id 定义在导出模块里，这里只用类型，避免运行时循环依赖。
+import type { PhotoBlockId } from '@/lib/export/blocks';
+
 export const DOMAIN_SCHEMA_VERSION = 1 as const;
 
 export type PhotoStatus = 'idle' | 'processing' | 'success' | 'failed';
@@ -36,6 +39,11 @@ export interface AnalyzeStyleOptions {
   storyLength?: StoryLength;
   /** 同批次已用标题，要求模型避开重复 */
   existingTitles?: string[];
+  /**
+   * 0.5.7：这一页最终会印成什么样（由导出板块推导）。
+   * 文案要跟着版面走 —— 极简画册只有一行图注，就不该产出 200 字正文。
+   */
+  pageHint?: string;
 }
 
 
@@ -212,6 +220,14 @@ export interface ExportSettings {
   watermark: boolean;
   watermarkText?: string;
   watermarkAuthor?: string;
+  /**
+   * 0.5.7：照片页里各板块的顺序（用户拖出来的就是它）。
+   * 不填时由旧的布尔开关推导（见 src/lib/export/blocks.ts 的 resolveBlocks），
+   * 所以老项目升级上来版式不会变。
+   */
+  blocks?: PhotoBlockId[];
+  /** 0.5.7：上次套用的模板 id，UI 用来显示「当前是摄影集模板」 */
+  templateId?: string;
 }
 
 /** 相框样式 */
@@ -278,6 +294,8 @@ export interface AppSettings {
   exportDir?: string;
   /** 0.5.4：导出完成后是否在资源管理器中选中文件 */
   revealAfterExport?: boolean;
+  /** 0.5.7：启动时是否自动检查新版本（默认开） */
+  autoCheckUpdates?: boolean;
 }
 
 /** AI 服务商预设 */

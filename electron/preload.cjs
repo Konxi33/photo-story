@@ -1,5 +1,5 @@
 // electron/preload.cjs
-// 只暴露必要的桌面能力：版本、路径、打开文件夹、导出 PDF、主题同步、应用操作。
+// 只暴露必要的桌面能力：版本、路径、打开文件夹、导出 PDF、主题同步、应用操作、应用内更新。
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('photoStory', {
@@ -30,4 +30,18 @@ contextBridge.exposeInMainWorld('photoStory', {
   saveToDirectory: (payload) => ipcRenderer.invoke('file:saveToDirectory', payload),
   /** 在资源管理器里选中该文件 */
   showItemInFolder: (target) => ipcRenderer.invoke('app:showItemInFolder', target),
+  /** 0.5.7：联网检查新版本（主进程用 net.fetch，失败返回 { ok:false, error }） */
+  checkForUpdate: (options) => ipcRenderer.invoke('update:check', options),
+  /** 0.5.7：下载安装包，返回 { ok:true, filePath } 或 { ok:false, error } */
+  downloadUpdate: (assetUrl, fileName) =>
+    ipcRenderer.invoke('update:download', { url: assetUrl, fileName }),
+  /** 0.5.7：启动安装包并退出应用 */
+  installUpdate: (filePath) => ipcRenderer.invoke('update:install', filePath),
+  /** 0.5.7：订阅下载进度，返回取消订阅函数 */
+  onUpdateProgress: (cb) => {
+    if (typeof cb !== 'function') return () => undefined;
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('update:progress', listener);
+    return () => ipcRenderer.removeListener('update:progress', listener);
+  },
 });

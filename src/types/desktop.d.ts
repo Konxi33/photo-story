@@ -14,6 +14,35 @@ export interface PdfExportResult {
   error?: string;
 }
 
+/** 0.5.7：update:check 的返回（失败时只有 ok:false 与 error） */
+export interface UpdateCheckResult {
+  ok: boolean;
+  current?: string;
+  latest?: string;
+  hasUpdate?: boolean;
+  /** GitHub Release 的 body（中文更新日志全文） */
+  notes?: string;
+  assetUrl?: string | null;
+  assetName?: string | null;
+  assetSize?: number | null;
+  /** ISO 时间字符串，如 2026-11-01T12:00:00Z */
+  publishedAt?: string | null;
+  error?: string;
+}
+
+/** 0.5.7：update:download 的返回 */
+export interface UpdateDownloadResult {
+  ok: boolean;
+  filePath?: string;
+  error?: string;
+}
+
+/** 0.5.7：update:progress 事件载荷（total 为 0 表示服务端没给文件大小） */
+export interface UpdateProgressPayload {
+  received: number;
+  total: number;
+}
+
 declare global {
   interface Window {
     photoStory?: {
@@ -53,6 +82,14 @@ declare global {
       }) => Promise<{ ok: boolean; path?: string; error?: string }>;
       /** 在资源管理器里选中该文件 */
       showItemInFolder?: (target: string) => Promise<{ ok: boolean; error?: string }>;
+      /** 0.5.7：联网检查新版本（主进程 net.fetch，失败不 throw） */
+      checkForUpdate?: (options?: { force?: boolean }) => Promise<UpdateCheckResult>;
+      /** 0.5.7：把安装包下载到临时目录 */
+      downloadUpdate?: (assetUrl: string, fileName?: string) => Promise<UpdateDownloadResult>;
+      /** 0.5.7：启动安装包并退出应用 */
+      installUpdate?: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
+      /** 0.5.7：订阅下载进度，返回取消订阅函数 */
+      onUpdateProgress?: (cb: (progress: UpdateProgressPayload) => void) => () => void;
     };
   }
 }
