@@ -67,6 +67,7 @@ import {
   type PhotoBlockId,
 } from '@/lib/export/blocks';
 import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
+import { planLayoutPage, type PageLayout } from '@/lib/export/layout';
 import Link from 'next/link';
 import { ROUTES } from '@/config/app';
 import { FRAME_PRESETS } from '@/lib/export/frame';
@@ -137,6 +138,10 @@ export function ExportDialog({
   // 0.5.7：这一页印哪些板块、按什么顺序 —— 用户拖出来的就是它
   const [blocks, setBlocks] = useState<PhotoBlockId[]>(DEFAULT_BLOCKS);
   const [templateId, setTemplateId] = useState('');
+
+  // 0.6.0：排版台摆好的位置。有它就以画布为准，下面的顺序只在关掉它时才生效。
+  const [studioGrid, setStudioGrid] = useState<PageLayout | null>(null);
+  const [useStudio, setUseStudio] = useState(false);
 
   // 0.5.6：导出预设——把一整套排版选项存成「方案」，换项目也能一键套用
   const [presets, setPresets] = useState<ExportPreset[]>([]);
@@ -219,6 +224,9 @@ export function ExportDialog({
     setIncludeScoreDetail(s.includeScoreDetail === true);
     setBlocks(resolveBlocks(s));
     setTemplateId(s.templateId ?? '');
+    const grid = s.grid && Array.isArray(s.grid.items) && s.grid.items.length > 0 ? s.grid : null;
+    setStudioGrid(grid);
+    setUseStudio(grid ? s.useGrid !== false : false);
   };
 
   useEffect(() => {
@@ -295,6 +303,10 @@ export function ExportDialog({
         includeScoreDetail,
         blocks,
         templateId,
+        // grid 始终留着（排版台的位置不能因为这次关掉开关就丢），
+        // 用 useGrid 记录「这次按不按画布印」。
+        grid: studioGrid ?? undefined,
+        useGrid: useStudio,
       },
       blocks,
     );
@@ -312,11 +324,17 @@ export function ExportDialog({
     applySettings(next);
     setBlocks(template.blocks);
     setTemplateId(id);
+    // 模板给的是「竖着排」的一套顺序，跟画布上的自由摆位冲突，所以套模板就关掉画布
+    if (useStudio) {
+      setUseStudio(false);
+      toast.info('已按模板重排', { description: '想保留排版台的位置，把它上面的开关再打开。' });
+    }
     toast.success(`已套用「${template.name}」`, { description: template.hint });
   };
 
   const toggleBlock = (id: PhotoBlockId): void => {
     setTemplateId('');
+    setUseStudio(false);
     setBlocks((prev) => {
       if (prev.includes(id)) {
         if (prev.length <= 1) {
@@ -343,6 +361,10 @@ export function ExportDialog({
     const to = blocks.indexOf(over.id as PhotoBlockId);
     if (from < 0 || to < 0) return;
     setTemplateId('');
+    if (useStudio) {
+      setUseStudio(false);
+      toast.info('改成按这个顺序排', { description: '想回到画布的位置，把上面的开关再打开。' });
+    }
     setBlocks(arrayMove(blocks, from, to));
   };
 
@@ -372,9 +394,11 @@ export function ExportDialog({
     setDetail(null);
 
     const settings = buildSettings();
-    await ProjectRepository.update(project.id, { exportSettings: settings }).catch(
-      () => undefined,
-    );
+    // 保存到项目时永远保留排版台画布（哪怕这次临时关掉了），
+    // 否则「关掉开关导一次」会把在排版台摆好的位置永久清掉。
+    await ProjectRepository.update(project.id, {
+      exportSettings: { ...settings, grid: studioGrid ?? settings.grid },
+    }).catch(() => undefined);
 
     try {
       if (format === 'docx') {
@@ -471,14 +495,35 @@ export function ExportDialog({
       },
       blocks,
     );
+    const contentCm = exportContentCm(settings);
     const contentHeightCm = exportContentHeightCm(settings);
+    // 有画布时试算也要按画布算，否则提示的「图片最高约 Xcm」跟印出来不一致
+    if (useStudio && studioGrid) {
+      const plan = planLayoutPage({ photo: sample, index: 0, settings, contentCm, contentHeightCm });
+      const imageItem = plan.items.find((item) => item.item.id === 'image');
+      return {
+        mode: 'grid' as const,
+        dropped: [] as PhotoBlockId[],
+        imageRoomCm: imageItem ? imageItem.heightCm : 0,
+        fillRatio: 1,
+        warnings: plan.warnings,
+        contentHeightCm,
+      };
+    }
     const fit = planPhotoPage({
       photo: sample,
       settings,
-      contentCm: exportContentCm(settings),
+      contentCm,
       contentHeightCm,
     });
-    return { fit, contentHeightCm };
+    return {
+      mode: 'flow' as const,
+      dropped: fit.dropped,
+      imageRoomCm: fit.imageRoomCm,
+      fillRatio: fit.fillRatio,
+      warnings: [] as string[],
+      contentHeightCm,
+    };
   }, [
     isWordLike,
     selectedPhotos,
@@ -493,6 +538,8 @@ export function ExportDialog({
     captionStyle,
     includeScoreDetail,
     blocks,
+    useStudio,
+    studioGrid,
   ]);
 
   const unusedBlocks = BLOCKS.filter((meta) => !blocks.includes(meta.id));
@@ -634,8 +681,41 @@ export function ExportDialog({
                   <LayoutTemplate className="h-3.5 w-3.5 text-ink-faint" />
                   一页印什么
                 </span>
-                <span className="text-[10.5px] text-ink-faint">拖动左侧手柄调顺序</span>
+                <span className="text-[10.5px] text-ink-faint">
+                  {useStudio && studioGrid ? '位置来自排版台' : '拖动左侧手柄调顺序'}
+                </span>
               </div>
+
+              {studioGrid ? (
+                <div
+                  className={cn(
+                    'mt-2 rounded-lg border px-2.5 py-2',
+                    useStudio
+                      ? 'border-amber-500/35 bg-amber-500/[0.07]'
+                      : 'border-line/60 bg-surface-2/40',
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[10.5px] leading-relaxed text-ink-soft">
+                      {useStudio
+                        ? '现在按「排版台」画布上的位置印：每块在哪、多大，都以画布为准，下面的顺序不生效。'
+                        : '这个项目已经在排版台摆过位置，但现在按下面这个顺序竖着排。'}
+                    </p>
+                    <Switch
+                      aria-label="按排版台的位置印"
+                      checked={useStudio}
+                      onCheckedChange={setUseStudio}
+                    />
+                  </div>
+                  <Link
+                    href={ROUTES.studio}
+                    onClick={() => onOpenChange(false)}
+                    className="mt-1 inline-block text-[10.5px] text-ink-faint underline decoration-line underline-offset-2 hover:text-ink"
+                  >
+                    去排版台改位置
+                  </Link>
+                </div>
+              ) : null}
 
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {TEMPLATES.map((template) => (
@@ -664,7 +744,7 @@ export function ExportDialog({
                         key={id}
                         id={id}
                         index={index}
-                        dropped={pageFit?.fit.dropped.includes(id) ?? false}
+                        dropped={pageFit?.dropped.includes(id) ?? false}
                         onRemove={() => toggleBlock(id)}
                         canRemove={blocks.length > 1}
                       />
@@ -695,16 +775,22 @@ export function ExportDialog({
                 <p
                   className={cn(
                     'mt-2 text-[10.5px] leading-relaxed',
-                    pageFit.fit.dropped.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-ink-faint',
+                    pageFit.dropped.length > 0 || pageFit.warnings.length > 0
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-ink-faint',
                   )}
                 >
-                  {pageFit.fit.dropped.length > 0
-                    ? `按这个顺序排，最近那张照片的「${pageFit.fit.dropped
-                        .map((id) => BLOCK_MAP[id]?.label ?? id)
-                        .join('、')}」放不下，导出时会自动省掉 —— 想全留着就少勾几块。`
-                    : `试算：图片最高约 ${pageFit.fit.imageRoomCm.toFixed(1)}cm，整页填充 ${Math.round(
-                        pageFit.fit.fillRatio * 100,
-                      )}%。一张照片连同文字只占一页，不会被拆到两页。`}
+                  {pageFit.mode === 'grid'
+                    ? pageFit.warnings.length > 0
+                      ? `按画布排：${pageFit.warnings[0]}${pageFit.warnings.length > 1 ? ` 等 ${pageFit.warnings.length} 处` : ''}`
+                      : `按画布排：图片格约 ${pageFit.imageRoomCm.toFixed(1)}cm 高，每张照片占满一页，位置与你摆的一致。`
+                    : pageFit.dropped.length > 0
+                      ? `按这个顺序排，最近那张照片的「${pageFit.dropped
+                          .map((id) => BLOCK_MAP[id]?.label ?? id)
+                          .join('、')}」放不下，导出时会自动省掉 —— 想全留着就少勾几块。`
+                      : `试算：图片最高约 ${pageFit.imageRoomCm.toFixed(1)}cm，整页填充 ${Math.round(
+                          pageFit.fillRatio * 100,
+                        )}%。一张照片连同文字只占一页，不会被拆到两页。`}
                 </p>
               ) : null}
 

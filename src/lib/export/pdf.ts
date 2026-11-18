@@ -196,9 +196,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
 
   /**
    * 0.6.0：这一册是不是「积木版式」。判据与 Word 侧（document.ts）一致：
-   * 只要 settings.grid 里真的摆了积木，就按画布绝对定位来画。
+   * 只要 settings.grid 里真的摆了积木、且没有被 useGrid:false 关掉，就按画布绝对定位来画。
    */
-  const useGrid = Boolean(settings.grid && settings.grid.items && settings.grid.items.length > 0);
+  const useGrid = Boolean(
+    settings.useGrid !== false && settings.grid && settings.grid.items && settings.grid.items.length > 0,
+  );
 
   const photoSection = (
     { photo, dataUrl }: Candidate,

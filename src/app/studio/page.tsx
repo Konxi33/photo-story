@@ -40,6 +40,7 @@ import {
 import { ROUTES } from '@/config/app';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import { reviewLayout } from '@/lib/ai/layoutReview';
+import { ModuleGuide } from '@/components/module-guide';
 import { BLOCK_MAP, type PhotoBlockId } from '@/lib/export/blocks';
 import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
 import {
@@ -456,7 +457,7 @@ export default function StudioPage() {
               <h1 className="mt-1 text-[26px] font-semibold tracking-tight">这一页，你自己摆</h1>
               <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-ink-soft">
                 拖块身挪位置，拖右下角改大小，松手自动吸到格子上。摆完点「AI 检查」，让它看看有没有排错。
-                这里只决定**每一页照片**长什么样，封面、总览、章节页不受影响。
+                这里只决定每一页照片长什么样，封面、总览、章节页不受影响。
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -474,6 +475,8 @@ export default function StudioPage() {
               </Select>
             </div>
           </header>
+
+          <ModuleGuide moduleId="studio" className="mb-4" />
 
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
             <span className="mr-1 text-[11px] text-ink-faint">模板：</span>

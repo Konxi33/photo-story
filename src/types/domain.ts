@@ -234,6 +234,11 @@ export interface ExportSettings {
    * 名字避开了 layout（那是排版密度 compact/loose）。
    */
   grid?: import('@/lib/export/layout').PageLayout;
+  /**
+   * 这一次导出要不要按 grid 画（默认 true）。用户在导出对话框里关掉
+   * 「按排版台的位置印」时写 false——grid 本身仍保留，不会被清掉。
+   */
+  useGrid?: boolean;
 }
 
 /** 相框样式 */

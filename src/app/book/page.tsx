@@ -12,6 +12,7 @@ import {
   ArrowUp,
   BookOpen,
   BookOpenCheck,
+  LayoutTemplate,
   GripVertical,
   Loader2,
   Plus,
@@ -282,6 +283,18 @@ export default function BookPage() {
             <Link href={ROUTES.flip}>
               <BookOpenCheck className="mr-1.5 h-3.5 w-3.5" />
               翻页预览
+            </Link>
+          </Button>
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="h-8 rounded-full px-3"
+            title="这一页的积木摆在哪，去排版台自己拖"
+          >
+            <Link href={ROUTES.studio}>
+              <LayoutTemplate className="mr-1.5 h-3.5 w-3.5" />
+              排版台
             </Link>
           </Button>
           <Button

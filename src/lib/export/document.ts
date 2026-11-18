@@ -114,7 +114,9 @@ export function buildDocument(params: BuildDocumentParams): Document {
    * 有 `settings.grid`（用户在画布上摆过积木）就走网格渲染，否则沿用 0.5.7 的
    * 板块竖排 —— 老项目升级上来版式不变。
    */
-  const useGrid = Boolean(settings.grid && settings.grid.items && settings.grid.items.length > 0);
+  const useGrid = Boolean(
+    settings.useGrid !== false && settings.grid && settings.grid.items && settings.grid.items.length > 0,
+  );
   const contentCm = exportContentCm(settings);
   const fullHeightCm = exportContentHeightCm(settings);
 
