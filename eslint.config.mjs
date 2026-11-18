@@ -12,6 +12,9 @@ const config = [
       'node_modules/**',
       'data/**',
       'dist-electron/**',
+      // 0.6.0：app.asar 被占用时构建会回退到 dist-build，产物里全是压缩后的
+      // 服务端代码，被 lint 扫到会产生上千条假错误。
+      'dist-build/**',
       'coverage/**',
       'next-env.d.ts',
       'install-part-*.cjs',

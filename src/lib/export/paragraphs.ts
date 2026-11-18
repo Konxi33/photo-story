@@ -188,6 +188,22 @@ export function isPageBreakParagraph(block: unknown): boolean {
 }
 
 /**
+ * 段落级分页（0.6.0）：把 pageBreakBefore 写在段落属性上，段内不放 `<w:br>`。
+ * 为什么不用上面的 pageBreakParagraph —— 网格页是「整页一张表格」，
+ * 表格前后夹一个 run 级分页段落时，LibreOffice 会多印一整张空白页
+ * （实测 3 页文档渲成 4 页）；换成段落级 pageBreakBefore 就干净了。
+ */
+export function pageBreakBeforeParagraph(): Paragraph {
+  const paragraph = new Paragraph({
+    pageBreakBefore: true,
+    spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT },
+    children: [],
+  });
+  pageBreakTags.add(paragraph);
+  return paragraph;
+}
+
+/**
  * 去掉连续/开头的分页段落。
  * 章节扉页自带分页、首张照片又按 pageBreakPerPhoto 分一次，会在书里印出整张空白页。
  */

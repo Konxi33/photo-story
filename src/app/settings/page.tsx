@@ -133,6 +133,9 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<NonNullable<AppSettings['theme']>>('paper');
   const [backgroundBlur, setBackgroundBlur] = useState(14);
   const [animations, setAnimations] = useState(true);
+  // 0.6.0：这两项以前写死（1024 / 640），设置里调不到；老电脑要更小更快。
+  const [aiEdge, setAiEdge] = useState(1024);
+  const [previewEdge, setPreviewEdge] = useState(640);
   const [wallColumns, setWallColumns] = useState<2 | 3 | 4 | 5>(3);
   const [compressOnUpload, setCompressOnUpload] = useState(true);
   const [keepOriginal, setKeepOriginal] = useState(true);
@@ -235,6 +238,8 @@ export default function SettingsPage() {
         setConcurrency(s.concurrency);
         setTimeoutSec(Math.round(s.timeoutMs / 1000));
         setMaxRetries(s.maxRetries);
+        setAiEdge(s.aiImageMaxEdge ?? 1024);
+        setPreviewEdge(s.previewMaxEdge ?? 640);
         setTitleStyle(s.titleStyle ?? 'literary');
         setNarrativeStyle(s.narrativeStyle ?? 'essay');
         setStoryLength(s.storyLength ?? 'medium');
@@ -301,6 +306,8 @@ export default function SettingsPage() {
         concurrency,
         timeoutSec,
         maxRetries,
+        aiEdge,
+        previewEdge,
         titleStyle,
         narrativeStyle,
         storyLength,
@@ -335,6 +342,8 @@ export default function SettingsPage() {
       concurrency,
       timeoutSec,
       maxRetries,
+      aiEdge,
+      previewEdge,
       titleStyle,
       narrativeStyle,
       storyLength,
@@ -369,7 +378,7 @@ export default function SettingsPage() {
 
   // 0.5.1：二级菜单跟随滚动高亮
   useEffect(() => {
-    const ids = ['ai', 'style', 'gen', 'look', 'photo', 'app', 'update', 'store'];
+    const ids = ['ai', 'style', 'gen', 'look', 'perf', 'photo', 'app', 'update', 'store'];
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries
@@ -424,8 +433,8 @@ export default function SettingsPage() {
         concurrency: Math.min(MAX_CONCURRENCY, Math.max(1, Math.round(concurrency) || 1)),
         timeoutMs: Math.min(120_000, Math.max(30_000, Math.round(timeoutSec) * 1000)),
         maxRetries: Math.min(3, Math.max(0, Math.round(maxRetries) || 0)),
-        aiImageMaxEdge: 1024,
-        previewMaxEdge: 640,
+        aiImageMaxEdge: Math.min(1600, Math.max(512, aiEdge)),
+        previewMaxEdge: Math.min(1200, Math.max(320, previewEdge)),
         storageNoticeDismissed: true,
         titleStyle,
         narrativeStyle,
@@ -579,6 +588,7 @@ export default function SettingsPage() {
             ['style', '文案风格'],
             ['gen', '生成参数'],
             ['look', '外观'],
+            ['perf', '性能'],
             ['photo', '照片与相框'],
             ['app', '应用'],
             ['update', '版本更新'],
@@ -879,6 +889,42 @@ export default function SettingsPage() {
           <Row label="界面动效" desc="卡片淡入、面板回弹、点击缩放">
             <Switch aria-label="界面动效" checked={animations} onCheckedChange={setAnimations} />
           </Row>
+        </Section>
+
+        {/* 性能（0.6.0 新增：这两项以前写死，老电脑调不动） */}
+        <Section id="perf" title="性能" desc="老电脑把这几个数值调小会明显更快">
+          <Field label="传给 AI 的图片长边">
+            <Select value={String(aiEdge)} onValueChange={(v) => setAiEdge(Number(v))}>
+              <SelectTrigger className="w-[168px]" aria-label="传给 AI 的图片长边">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="768">768 px（最快）</SelectItem>
+                <SelectItem value="1024">1024 px（默认）</SelectItem>
+                <SelectItem value="1280">1280 px（更准）</SelectItem>
+                <SelectItem value="1600">1600 px（最慢）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] leading-relaxed text-ink-faint">
+              越大识别越细，也越慢、越费 token。1920 宽的照片按 1024 送去已经够用。
+            </p>
+          </Field>
+          <Field label="本地缩略图长边">
+            <Select value={String(previewEdge)} onValueChange={(v) => setPreviewEdge(Number(v))}>
+              <SelectTrigger className="w-[168px]" aria-label="本地缩略图长边">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="480">480 px（省内存）</SelectItem>
+                <SelectItem value="640">640 px（默认）</SelectItem>
+                <SelectItem value="800">800 px（更清晰）</SelectItem>
+                <SelectItem value="960">960 px（最清晰）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] leading-relaxed text-ink-faint">
+              照片墙、评分卡、排版台都用这档缩略图。只影响之后上传的照片，已有的不受影响。
+            </p>
+          </Field>
         </Section>
 
         {/* 照片 */}

@@ -9,6 +9,12 @@
 //   不再把 @page 写死成 A4 + default margin（那样设置里的选项在 PDF 里全失效）；
 // - 补上总览页与章节扉页，与 Word 版的成书结构一致；
 // - 「评分卡与解读」开关同样生效，关掉后每页只有图 / 图注 / 正文 / 拍摄手法。
+//
+// 0.6.0 积木排版：
+// - 有 `settings.grid`（用户在画布上摆过积木）时，照片页交给 pdf-grid.ts 用
+//   position:absolute 按 12 列 × 24 行的网格画，位置就是用户摆的位置；
+// - 没有 grid 的老项目继续走下面的竖排实现（板块顺序 + 段落流），版式不变。
+//   两条路的规划都来自 src/lib/export/layout.ts 的 planLayoutPage，不会各算一套。
 
 import { AssetRepository } from '@/lib/db';
 import { formatCamera, formatExifLine } from '@/lib/image/exif';
@@ -19,6 +25,8 @@ import { type PhotoBlockId, planPhotoPage, resolveBlocks } from './blocks';
 import { applyFrame } from './frame';
 import { encodeImageForDocx } from './image-encode';
 import { tidyParam } from './params';
+import { measureTextCm } from './layout';
+import { GRID_HEADING_RESERVE_CM, buildGridPhotoPage } from './pdf-grid';
 
 interface Candidate {
   photo: Photo;
@@ -126,8 +134,8 @@ function orderPhotos(
   return { chapters: groups, rest: photos.filter((p) => !used.has(p.id)) };
 }
 
-/** 构建整册 HTML（打印用） */
-async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
+/** 构建整册 HTML（打印用）。0.6.0 起导出给打印/预览/自测脚本用。 */
+export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   const { project, photos, settings, onProgress } = params;
   const edge =
     settings.imageQuality === 'ultra' ? 2000 : settings.imageQuality === 'high' ? 1500 : 1000;
@@ -186,7 +194,34 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   // 用户把「点评」拖到图上面，PDF 里也得在图上面。
   const blocks = resolveBlocks(settings);
 
-  const photoSection = ({ photo, dataUrl }: Candidate, index: number, noBreak = false): string => {
+  /**
+   * 0.6.0：这一册是不是「积木版式」。判据与 Word 侧（document.ts）一致：
+   * 只要 settings.grid 里真的摆了积木，就按画布绝对定位来画。
+   */
+  const useGrid = Boolean(settings.grid && settings.grid.items && settings.grid.items.length > 0);
+
+  const photoSection = (
+    { photo, dataUrl }: Candidate,
+    index: number,
+    noBreak = false,
+    headingReserveCm = GRID_HEADING_RESERVE_CM,
+  ): string => {
+    // 积木版：几何、字号、截断全由 planLayoutPage 决定，这里只负责把格子画出来。
+    // noBreak 在积木版里表示「这页顶端压着紧凑章头」，得给章头让出高度；
+    // 章注可能换行，所以让出的高度由调用方按实测文字量算好传进来。
+    if (useGrid) {
+      return buildGridPhotoPage({
+        photo,
+        index,
+        dataUrl,
+        settings,
+        contentCm: layout.contentW / 10,
+        contentHeightCm: layout.contentH / 10,
+        reservedCm: noBreak ? headingReserveCm : 0,
+        breakBefore: !noBreak,
+      });
+    }
+
     const a = photo.status === 'success' ? photo.analysis : undefined;
     const parts: Partial<Record<PhotoBlockId, string>> = {};
 
@@ -361,9 +396,15 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     );
     chapter.photos.forEach((photo, photoIndex) => {
       order += 1;
-      // 单张章节：章头已排在同一页顶端，照片别再另起一页
+      // 单张章节：章头已排在同一页顶端，照片别再另起一页。
+      // 积木版还得把章头占的高度让出来；章注可能换行，按实测文字高度累加
+      // （让得不够，整页会被推到下一页，前一面只印着章头 —— 白页）。
+      const shareHeading = single && photoIndex === 0;
+      const headingReserveCm = chapter.note
+        ? GRID_HEADING_RESERVE_CM + measureTextCm(chapter.note, layout.contentW / 10, 11, 1.7).needCm + 0.35
+        : GRID_HEADING_RESERVE_CM;
       bodyParts.push(
-        photoSection({ photo, dataUrl: encoded.get(photo.id) ?? null }, order, single && photoIndex === 0),
+        photoSection({ photo, dataUrl: encoded.get(photo.id) ?? null }, order, shareHeading, headingReserveCm),
       );
     });
   });
@@ -487,6 +528,43 @@ async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     break-inside: avoid; }
   .card-title { margin:0 0 4px; font-size:8.5pt; letter-spacing:.08em; color:#8a8a8a; }
   .card-line { margin:0 0 2px; font-size:9pt; line-height:1.5; color:#2a2a2a; }
+
+  /* 0.6.0 积木排版：一页 = 一张 12 列 × 24 行的画布，每个积木绝对定位在格子上。
+     外层高度写死成版心高度（由 pdf-grid.ts 内联），所以整页恰好占一页；
+     break-after:page 让每张照片独立成页，最后一页不补空页。 */
+  .gpage { position:relative; overflow:hidden; break-inside:avoid; break-after:page; }
+  .gpage:last-child { break-after:auto; }
+  .gitem { position:absolute; overflow:hidden; }
+  .gitem-text { padding:0.4mm 0.6mm; }
+  .gitem figure { margin:0; height:100%; display:flex; align-items:center; justify-content:center; }
+  .gitem figure img { max-width:100%; max-height:100%; object-fit:contain; }
+  .gph { width:100%; height:100%; background:#f2efe9; }
+  /* 积木里的字号以格子规划出的 fontPt 为基准（内联在 .gitem 上），子元素一律按 em 缩放 */
+  .gitem .idx { margin:0; text-align:left; font-size:1em; }
+  .gitem h2 { margin:0; text-align:left; font-size:1.45em; line-height:1.25; letter-spacing:.02em; }
+  .gitem .rule { display:none; }
+  .gitem .cap { margin:0; text-align:left; font-size:1em; line-height:1.45; }
+  .gitem .story { margin:0; font-size:1em; line-height:1.65; text-indent:2em; text-align:justify; }
+  .gitem .techs { margin:0; }
+  .gitem .tech { font-size:1em; line-height:1.5; margin-bottom:0.5mm; gap:1.5mm; }
+  .gitem .tech span { flex:0 0 2.6em; }
+  .gitem .exif, .gitem .category, .gitem .mood, .gitem .alt, .gitem .tags {
+    margin:0; text-align:left; font-size:1em; }
+  .gitem .chips { margin:0; justify-content:flex-start; gap:1.2mm; }
+  .gitem .chip { font-size:1em; padding:0.3mm 1.2mm; }
+  .gitem .module { margin:0; padding:1.2mm 1.6mm; }
+  .gitem .score { gap:2.5mm; }
+  .gitem .score.compact { display:block; }
+  .gitem .score-num { font-size:2.2em; }
+  .gitem .score-num small { font-size:0.45em; }
+  .gitem .score-grid { gap:0.4mm 3mm; }
+  .gitem .bar { font-size:0.85em; }
+  .gscore-line { margin:0.4mm 0 0; font-size:0.9em; color:#6b6b6b; }
+  .gitem .advice { margin:0; gap:1.2mm;
+    grid-template-columns:repeat(auto-fit, minmax(4.2cm, 1fr)); }
+  .gitem .advice .card { padding:1mm 1.4mm; }
+  .gitem .card-title { font-size:0.85em; margin:0 0 0.5mm; }
+  .gitem .card-line { font-size:1em; line-height:1.5; margin:0; }
 </style></head><body>
 ${settings.includeCover ? cover : ''}
 ${overview}

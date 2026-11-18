@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  // 0.6.0：老电脑启动慢主要是首包大——把图标库与 Radix 按需引入，
+  // 只打进真正用到的模块，首屏 JS 明显变小。
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'date-fns'],
+  },
+
   output: 'standalone',
 
   images: {

@@ -228,6 +228,12 @@ export interface ExportSettings {
   blocks?: PhotoBlockId[];
   /** 0.5.7：上次套用的模板 id，UI 用来显示「当前是摄影集模板」 */
   templateId?: string;
+  /**
+   * 0.6.0：一页照片的「积木排版」（12 列 × 24 行的网格）。
+   * 有它就按它画，没有则由 blocks/旧开关推导成竖排（老项目升级版式不变）。
+   * 名字避开了 layout（那是排版密度 compact/loose）。
+   */
+  grid?: import('@/lib/export/layout').PageLayout;
 }
 
 /** 相框样式 */

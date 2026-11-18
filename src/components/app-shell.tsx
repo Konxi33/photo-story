@@ -17,6 +17,7 @@ import {
   HardDrive,
   Images,
   LayoutGrid,
+  LayoutTemplate,
   Menu,
   ScrollText,
   Settings,
@@ -66,6 +67,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     title: '创作',
     items: [
       { href: '/book', label: '编排', icon: BookOpen },
+      { href: '/studio', label: '排版台', icon: LayoutTemplate },
       { href: '/lab', label: '文案', icon: FlaskConical },
       { href: '/themes', label: '主题馆', icon: Compass },
     ],

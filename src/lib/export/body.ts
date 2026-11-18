@@ -110,7 +110,7 @@ export function buildAppendixRows(photo: Photo, index: number): { label: string;
 
 /* ------------------------------ 板块渲染 ------------------------------ */
 
-interface BlockContext {
+export interface BlockContext {
   photo: Photo;
   index: number;
   image: EncodedImage | null;
@@ -267,7 +267,7 @@ function resolveImageFrame(
 }
 
 /** 按板块逐个渲染（每个函数只负责自己那几段） */
-function renderBlock(
+export function renderBlock(
   id: PhotoBlockId,
   ctx: BlockContext,
   lead: LeadFlags,

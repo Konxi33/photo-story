@@ -67,6 +67,8 @@ import {
   type PhotoBlockId,
 } from '@/lib/export/blocks';
 import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
+import Link from 'next/link';
+import { ROUTES } from '@/config/app';
 import { FRAME_PRESETS } from '@/lib/export/frame';
 import { listPresets, removePreset, savePreset, type ExportPreset } from '@/lib/export/presets';
 import {
@@ -705,6 +707,18 @@ export function ExportDialog({
                       )}%。一张照片连同文字只占一页，不会被拆到两页。`}
                 </p>
               ) : null}
+
+              {/* 想要像素级自由摆放的，去排版台 */}
+              <div className="mt-2 border-t border-line/40 pt-2">
+                <Link
+                  href={ROUTES.studio}
+                  onClick={() => onOpenChange(false)}
+                  className="flex items-center gap-1 text-[10.5px] text-ink-soft underline decoration-dotted underline-offset-4 transition-colors hover:text-ink"
+                >
+                  <LayoutTemplate className="h-3 w-3" />
+                  想要自己摆位置？去「排版台」把积木拖到纸上
+                </Link>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">

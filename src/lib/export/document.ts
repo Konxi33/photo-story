@@ -28,6 +28,7 @@ import type { ExportSettings, Photo, Project } from '@/types/domain';
 
 import { buildAppendix } from './appendix';
 import { buildPhotoSection } from './body';
+import { buildGridPhotoSection } from './word-grid';
 import { buildChapterHeading, buildChapterOpener, planChapters, type ChapterPlan } from './chapter';
 import { buildCoverSection } from './cover';
 import { buildRunFont, buildRunStyle } from './fonts';
@@ -108,6 +109,46 @@ export function buildDocument(params: BuildDocumentParams): Document {
   // 导出顺序里的照片（章节顺序 + 未编排尾巴），技术附录按这个顺序编号
   const ordered: Photo[] = [];
 
+  /**
+   * 0.6.0：一页照片怎么画。
+   * 有 `settings.grid`（用户在画布上摆过积木）就走网格渲染，否则沿用 0.5.7 的
+   * 板块竖排 —— 老项目升级上来版式不变。
+   */
+  const useGrid = Boolean(settings.grid && settings.grid.items && settings.grid.items.length > 0);
+  const contentCm = exportContentCm(settings);
+  const fullHeightCm = exportContentHeightCm(settings);
+
+  const photoPage = (
+    photo: Photo,
+    index: number,
+    opts: { isFirst: boolean; hasChapterHeading?: boolean },
+  ): (Paragraph | Table)[] => {
+    const image = images.get(photo.id) ?? null;
+    if (!useGrid) {
+      return buildPhotoSection({
+        photo,
+        index,
+        image,
+        settings,
+        isFirst: opts.isFirst,
+        hasChapterHeading: opts.hasChapterHeading,
+      });
+    }
+    // 紧凑章头压在同一页顶端时要给它让出高度（实测约 2.6cm）。
+    // 多留 0.3cm 余量：网格表格是「24 行 × 精确行高」，正好占满版心时
+    // LibreOffice 会把整张表推到下一页，结果每章第一页只剩章头（实测 39 页）。
+    const reservedCm = opts.hasChapterHeading ? 3.2 : 0;
+    return buildGridPhotoSection({
+      photo,
+      index,
+      image,
+      settings,
+      contentCm,
+      contentHeightCm: Math.max(6, fullHeightCm - reservedCm),
+      pageBreakBefore: !opts.isFirst,
+    });
+  };
+
   chapterPlan.forEach((entry, chapterIdx) => {
     // 章扉要占一整页，只留给「照片够多、值得单独开一个单元」的章节（≥4 张）。
     // 一张或两三张的小章节用紧凑章头压在同一页顶端，否则一本 20 张的书会被扉页切成碎片
@@ -129,11 +170,7 @@ export function buildDocument(params: BuildDocumentParams): Document {
         photoIndex += 1;
         ordered.push(photo);
         children.push(
-          ...buildPhotoSection({
-            photo,
-            index: photoIndex,
-            image: images.get(photo.id) ?? null,
-            settings,
+          ...photoPage(photo, photoIndex, {
             // 章头已经把这页开好了，第一张照片别再分一次页
             isFirst: i === 0,
             hasChapterHeading: i === 0,
@@ -162,13 +199,7 @@ export function buildDocument(params: BuildDocumentParams): Document {
       photoIndex += 1;
       ordered.push(photo);
       children.push(
-        ...buildPhotoSection({
-          photo,
-          index: photoIndex,
-          image: images.get(photo.id) ?? null,
-          settings,
-          isFirst: false,
-        }),
+        ...photoPage(photo, photoIndex, { isFirst: false }),
       );
     });
   });
@@ -178,13 +209,7 @@ export function buildDocument(params: BuildDocumentParams): Document {
     photoIndex += 1;
     ordered.push(photo);
     children.push(
-      ...buildPhotoSection({
-        photo,
-        index: photoIndex,
-        image: images.get(photo.id) ?? null,
-        settings,
-        isFirst: photoIndex === 1 && !hasPreviousContent,
-      }),
+      ...photoPage(photo, photoIndex, { isFirst: photoIndex === 1 && !hasPreviousContent }),
     );
   });
 
