@@ -454,7 +454,7 @@ export default function ScorePage() {
           <Stat
             label="待评分"
             value={String(unscoredCount)}
-            hint="点右上角批量补"
+            hint={unscoredCount > 0 ? '点右上角批量补' : '全部照片都已评分'}
             delay={180}
           />
         </div>

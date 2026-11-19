@@ -331,14 +331,14 @@ export default function HomePage() {
                 >
                   <Link
                     href={item.href}
-                    className="ps-pressable group flex h-full items-start gap-2.5 rounded-xl border border-line/50 bg-surface-2/35 p-3 transition-[border-color,background-color,transform] duration-300 hover:-translate-y-[2px] hover:border-ink/15 hover:bg-surface-2/70"
+                    className="ps-pressable group flex h-full items-center gap-2.5 rounded-xl border border-line/50 bg-surface-2/35 px-3 py-2 transition-[border-color,background-color,transform] duration-300 hover:-translate-y-[2px] hover:border-ink/15 hover:bg-surface-2/70"
                   >
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-3/70 text-ink-mid transition-colors duration-300 group-hover:text-ink">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-3/70 text-ink-mid transition-colors duration-300 group-hover:text-ink">
                       <Icon className="h-3.5 w-3.5" strokeWidth={1.7} />
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[12.5px] font-medium text-ink">{item.name}</span>
-                      <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
+                      <span className="block truncate text-[10.5px] leading-snug text-ink-faint">
                         {item.tagline}
                       </span>
                     </span>
