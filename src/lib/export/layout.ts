@@ -548,7 +548,7 @@ export interface LayoutPlan {
  */
 export function planLayoutPage(input: LayoutPlanInput): LayoutPlan {
   const base = resolveLayout(input.settings);
-  let layout: PageLayout = {
+  const layout: PageLayout = {
     ...base,
     items: base.items.map((item) => ({ ...item })),
   };
