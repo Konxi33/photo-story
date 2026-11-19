@@ -28,6 +28,8 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
   const doc = getModule(moduleId);
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  // 0.6.2：这一卡默认只留一行提要 + 三步，细说按需展开——用户反馈「信息一上来太多」
+  const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     if (!doc) return;
@@ -94,7 +96,19 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
             </h2>
             <span className="text-[11px] text-ink-faint">第一次用可以先看这三行</span>
           </div>
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-mid">{doc.detail}</p>
+          <p className="mt-1.5 flex items-baseline gap-1.5 text-[12.5px] leading-relaxed text-ink-mid">
+            <span className="min-w-0">{doc.detail.split('。')[0]}。</span>
+            <button
+              type="button"
+              onClick={() => setShowDetail((v) => !v)}
+              className="shrink-0 text-[11.5px] text-ink-faint underline decoration-line underline-offset-2 transition-colors hover:text-ink"
+            >
+              {showDetail ? '收起' : '细说'}
+            </button>
+          </p>
+          {showDetail && (
+            <p className="ps-fade-in mt-1 text-[12px] leading-relaxed text-ink-faint">{doc.detail}</p>
+          )}
           <ol className="mt-2.5 grid gap-1.5">
             {doc.steps.map((step, index) => (
               <li key={step} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-mid">

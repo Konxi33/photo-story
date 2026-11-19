@@ -23,6 +23,7 @@ import {
   GripVertical,
   LayoutTemplate,
   Loader2,
+  ChevronDown,
   Minus,
   Plus,
   Presentation,
@@ -114,6 +115,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const [format, setFormat] = useState<Format>('docx');
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [includeCover, setIncludeCover] = useState(true);
   const [includeOverview, setIncludeOverview] = useState(true);
   const [pageBreakPerPhoto, setPageBreakPerPhoto] = useState(true);
@@ -874,6 +876,21 @@ export function ExportDialog({
                 </Select>
               </SettingRow>
 
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="flex items-center gap-1.5 self-start rounded-lg px-1 py-1 text-[11.5px] text-ink-faint transition-colors hover:text-ink"
+                aria-expanded={showAdvanced}
+              >
+                <ChevronDown
+                  className={cn('h-3.5 w-3.5 transition-transform duration-200', showAdvanced && 'rotate-180')}
+                  strokeWidth={1.8}
+                />
+                {showAdvanced ? '收起更多选项' : '更多选项（纸张方向、页边距、分栏、行距）'}
+              </button>
+
+              {showAdvanced && (
+                <>
               <SettingRow label="纸张方向">
                 <Select
                   value={orientation}
@@ -924,8 +941,11 @@ export function ExportDialog({
                   </SelectContent>
                 </Select>
               </SettingRow>
+                </>
+              )}
             </div>
 
+            {showAdvanced && (
             <SettingRow label="总览列数">
               <Select
                 value={overviewColumns}
@@ -938,6 +958,7 @@ export function ExportDialog({
                 </SelectContent>
               </Select>
             </SettingRow>
+            )}
           </div>
         )}
 
