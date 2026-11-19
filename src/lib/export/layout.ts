@@ -18,6 +18,7 @@
 // 永远不会溢出。
 
 import type { ExportSettings, Photo, PhotoAnalysis } from '@/types/domain';
+import { exportContentCm, exportContentHeightCm } from './metrics';
 
 import { BLOCK_MAP, BLOCKS, resolveBlocks, type PhotoBlockId } from './blocks';
 
@@ -552,8 +553,18 @@ export function planLayoutPage(input: LayoutPlanInput): LayoutPlan {
     ...base,
     items: base.items.map((item) => ({ ...item })),
   };
+  // 0.6.2：竖排先按真实文字高度重排，剩下的行全给照片（否则半页空白、照片很小）
+  let dropped: PhotoBlockId[] = [];
+  if (isVertical(layout)) {
+    const before = layout.items.map((item) => item.id);
+    layout.items = fitVertical(layout, input).items;
+    const kept = new Set(layout.items.map((item) => item.id));
+    dropped = before.filter((id) => !kept.has(id));
+  }
   let plan = planOnce(layout, input);
-
+  for (const id of dropped) {
+    plan.warnings.push(`这一页放不下「${BLOCK_MAP[id]?.label ?? id}」，导出时省略了这一块`);
+  }
   // 0.6.1：文字放不下时，先让照片把行数让出来（最少让到 MIN_BOX.image 的高），
   // 让完还放不下才截断 —— 用户抱怨「字超出自定义框」，多半是照片占得太满。
   const image = layout.items.find((item) => item.id === 'image');
@@ -574,7 +585,93 @@ export function planLayoutPage(input: LayoutPlanInput): LayoutPlan {
     }
   }
 
+  // 0.6.2：底部用不完的行全部给照片块，下面那些块顺次往下挪 —— 用户抱怨「空白很多、图太小」。
+  // 只挪不改大小，所以字不会被挤掉；挪完再用 planOnce 重算一遍。
+  const growable = layout.items.find((item) => item.id === 'image');
+  if (growable) {
+    const usedBottom = Math.max(...layout.items.map((item) => item.row + item.rowSpan));
+    const slack = layout.rows - usedBottom;
+    if (slack > 0) {
+      const imageBottom = growable.row + growable.rowSpan;
+      const below = layout.items.filter((item) => item !== growable && item.row >= imageBottom);
+      growable.rowSpan += slack;
+      for (const item of below) item.row += slack;
+      const overflow = Math.max(...layout.items.map((item) => item.row + item.rowSpan)) - layout.rows;
+      if (overflow > 0) {
+        growable.rowSpan = Math.max(MIN_BOX.image?.rowSpan ?? 6, growable.rowSpan - overflow);
+        for (const item of below) item.row -= overflow;
+      }
+      plan = planOnce(layout, input);
+    }
+  }
+
   return plan;
+}
+
+/** 竖排（每块都占满整宽）—— 老项目/关掉排版台时走这条 */
+function isVertical(layout: PageLayout): boolean {
+  return layout.items.every((item) => item.col === 0 && item.colSpan === layout.cols);
+}
+
+/**
+ * 0.6.2：竖排时按「真实文字高度」重新分行，剩下的行全给照片。
+ * 以前是按经验高度估的，估多了就留一片空白、照片被压得很小（用户实测一页下半截是空的）。
+ */
+function fitVertical(layout: PageLayout, input: LayoutPlanInput): PageLayout {
+  const rows = layout.rows;
+  const rowH = rowHCm(layout, input.contentHeightCm);
+  const colW = colWCm(layout, input.contentCm);
+  const order = [...layout.items].sort((a, b) => a.row - b.row || a.col - b.col);
+  const hasImage = order.some((item) => item.id === 'image');
+  const textIds = order.filter((item) => item.id !== 'image').map((item) => item.id);
+  const minImageRows = hasImage ? MIN_BOX.image?.rowSpan ?? 6 : 0;
+
+  // 竖排的优先级：标题、图、图注、正文、拍摄手法必须保住；
+  // 挤不下时从「无障碍 → 氛围 → 标签 → 类别 → 机身 → 参数 → 建议 → 评分」依次让位，
+  // 不去压字号把正文压成一行（用户实测过：那样正文只剩半句）。
+  const DROP_ORDER: PhotoBlockId[] = ['alt', 'mood', 'tags', 'category', 'exif', 'params', 'advice', 'score'];
+  const active = textIds.slice();
+  // 先降字号（9.5 → 9 → 8.5），还不行再按 DROP_ORDER 让块
+  let baseFont = 9.5;
+  let spans: number[] = [];
+  let total = 0;
+  for (const fontPt of [9.5, 9, 8.5]) {
+    spans = active.map((id) => {
+      const need = blockNeedCm({ ...input, id, widthCm: colW * layout.cols, fontPt });
+      return Math.max(MIN_BOX[id]?.rowSpan ?? 1, Math.ceil((need + 0.12) / rowH));
+    });
+    total = spans.reduce((sum, span) => sum + span, 0);
+    baseFont = fontPt;
+    if (total + minImageRows <= rows) break;
+  }
+  for (const candidate of DROP_ORDER) {
+    if (total + minImageRows <= rows) break;
+    const at = active.indexOf(candidate);
+    if (at < 0) continue;
+    active.splice(at, 1);
+    spans = active.map((id) => {
+      const need = blockNeedCm({ ...input, id, widthCm: colW * layout.cols, fontPt: baseFont });
+      return Math.max(MIN_BOX[id]?.rowSpan ?? 1, Math.ceil((need + 0.12) / rowH));
+    });
+    total = spans.reduce((sum, span) => sum + span, 0);
+  }
+
+  const imageRows = Math.max(1, rows - total);
+  const items: LayoutItem[] = [];
+  let cursor = 0;
+  for (const item of order) {
+    if (item.id === 'image') {
+      items.push({ ...item, col: 0, row: cursor, colSpan: layout.cols, rowSpan: imageRows });
+      cursor += imageRows;
+      continue;
+    }
+    const at = active.indexOf(item.id);
+    if (at < 0) continue; // 被挤掉的块这一页不印
+    const span = spans[at] ?? 1;
+    items.push({ ...item, col: 0, row: cursor, colSpan: layout.cols, rowSpan: span });
+    cursor += span;
+  }
+  return { ...layout, items };
 }
 
 function planOnce(layout: PageLayout, input: LayoutPlanInput): LayoutPlan {
@@ -615,6 +712,29 @@ function planOnce(layout: PageLayout, input: LayoutPlanInput): LayoutPlan {
     items.push({ item, widthCm, heightCm, fontPt: chosen, needCm: need, fits, truncated, shrunk });
   }
 
+  // 0.6.2：同一页里的文字只用一个字号 —— 用户抱怨「字体大小不定，看着乱」。
+  // 目标字号 = 各文字块能装下的最大字号里的最小值，但不低于 9pt（别整页都变蚂蚁字）；
+  // 个别格子实在装不下，才自己再往下降 —— 这样一页里最多两种字号，且都是被迫的。
+  const fitted = items.filter((item) => item.item.id !== 'image' && !item.truncated);
+  if (fitted.length > 1) {
+    const target = Math.max(9, Math.min(...fitted.map((item) => item.fontPt)));
+    const candidates = FONT_LADDER.filter((fontPt) => fontPt <= target).slice().reverse();
+    for (const item of fitted) {
+      if (item.fontPt === target) continue;
+      let applied = item.fontPt;
+      for (const fontPt of candidates) {
+        const need = blockNeedCm({ ...input, id: item.item.id, widthCm: item.widthCm, fontPt });
+        if (need <= item.heightCm) {
+          item.fontPt = fontPt;
+          item.needCm = need;
+          applied = fontPt;
+          break;
+        }
+      }
+      item.shrunk = applied < FONT_LADDER[0];
+    }
+  }
+
   // 图片是唯一需要「兜底」的：没有图片块时补一句提醒
   if (!layout.items.some((item) => item.id === 'image')) {
     warnings.push('这一页没有照片积木，导出的页面上不会有图片');
@@ -651,6 +771,20 @@ export function pageHint(settings: ExportSettings): string {
 
   const storySpan = spans('story');
   const storyRowSpan = items.find((item) => item.id === 'story')?.rowSpan ?? 4;
+  const contentCm = exportContentCm(settings);
+  const contentHeightCm = exportContentHeightCm(settings);
+  const storyWidthCm = colWCm(layout, contentCm) * storySpan;
+  const storyHeightCm = rowHCm(layout, contentHeightCm) * storyRowSpan;
+  const perLine = measureTextCm('字'.repeat(20), storyWidthCm, 10).charsPerLine;
+  const storyLines = Math.max(1, Math.floor((storyHeightCm - 0.4) / (10 * PT_TO_CM * 1.6)));
+  const storyCap = Math.max(30, perLine * storyLines);
+  if (storyWidthCm >= 3 && storyLines >= 1) {
+    parts.push(
+      `这一页正文的格子约 ${storyWidthCm.toFixed(1)}cm 宽、可排 ${storyLines} 行（每行约 ${perLine} 字），` +
+        `story 请写到 ${Math.max(30, Math.floor(storyCap * 0.8))}–${storyCap} 字之间，超过 ${storyCap} 字一定会被截断`,
+    );
+    return parts.join('；');
+  }
   if (storySpan <= 4) {
     parts.push(
       `这一页的正文只占一小栏（约 ${Math.round(storyRowSpan * 0.6)} 行、每行十几字），story 控制在 60–90 字，写多了会被截断`,
