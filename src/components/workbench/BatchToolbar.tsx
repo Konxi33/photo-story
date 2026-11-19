@@ -155,9 +155,11 @@ export function BatchToolbar({
         >
           <Sparkles className="mr-1.5 h-3.5 w-3.5" />
           批量生成
-          <span className="ml-1.5 rounded-full bg-paper/20 px-1.5 text-[10.5px] tabular-nums">
-            {pendingCount}
-          </span>
+          {pendingCount > 0 && (
+            <span className="ml-1.5 rounded-full bg-paper/20 px-1.5 text-[10.5px] tabular-nums">
+              {pendingCount}
+            </span>
+          )}
         </Button>
       )}
 

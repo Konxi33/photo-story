@@ -375,7 +375,7 @@ export default function ScorePage() {
             ) : (
               <Sparkles className="mr-1.5 h-3.5 w-3.5" />
             )}
-            {batching ? '批量评分中…' : `补评分 (${unscoredCount})`}
+            {batching ? '批量评分中…' : `补评分${unscoredCount > 0 ? ` (${unscoredCount})` : ''}`}
           </Button>
         </div>
       }

@@ -214,7 +214,14 @@ export function PhotoCard({
           <p className="truncate text-[12.5px] font-medium text-ink" title={title}>
             {title}
           </p>
-          <p className="mt-0.5 truncate text-[10.5px] text-ink-faint" title={photo.fileName}>
+          {/* 0.6.2：有 AI 标题时文件名退成悬浮信息，卡片首屏只留一个标题，视觉更干净 */}
+          <p
+            className={cn(
+              'mt-0.5 truncate text-[10.5px] text-ink-faint transition-opacity duration-200',
+              photo.analysis?.title?.trim() ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : '',
+            )}
+            title={photo.fileName}
+          >
             {photo.fileName}
           </p>
         </div>
