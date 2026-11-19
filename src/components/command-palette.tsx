@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   BookOpen,
+  BookOpenCheck,
   ChartLine,
   Compass,
   CornerDownLeft,
@@ -18,11 +19,13 @@ import {
   Images,
   Image as ImageIcon,
   LayoutGrid,
+  LayoutTemplate,
   ScrollText,
   Search,
   Settings,
   Sparkles,
   Swords,
+  Trash2,
 } from 'lucide-react';
 
 import { ROUTES } from '@/config/app';
@@ -90,6 +93,9 @@ export function CommandPalette({
       { id: 'compare', label: '选片擂台', group: '页面', href: ROUTES.compare, icon: Swords, hint: '两两对打，选出心头好' },
       { id: 'review', label: '评审室', group: '页面', href: ROUTES.review, icon: Gavel, hint: '三位评委，三个视角' },
       { id: 'growth', label: '摄影档案', group: '页面', href: ROUTES.growth, icon: ChartLine, hint: '你的拍摄习惯长什么样' },
+      { id: 'studio', label: '排版台', group: '页面', href: ROUTES.studio, icon: LayoutTemplate, hint: '这一页哪块在哪，你说了算' },
+      { id: 'flip', label: '翻页预览', group: '页面', href: ROUTES.flip, icon: BookOpenCheck, hint: '印之前先翻一遍' },
+      { id: 'trash', label: '回收站', group: '页面', href: ROUTES.trash, icon: Trash2, hint: '删掉的照片先来这里' },
       { id: 'changelog', label: '更新日志', group: '页面', href: ROUTES.changelog, icon: ScrollText },
       { id: 'settings', label: '设置', group: '页面', href: ROUTES.settings, icon: Settings },
     ];
@@ -118,6 +124,29 @@ export function CommandPalette({
         group: '操作',
         icon: Gauge,
         run: () => router.push('/score'),
+      },
+      {
+        id: 'go-studio',
+        label: '去排版台摆版式',
+        hint: 'A4 画布 · 积木自己摆',
+        group: '操作',
+        icon: LayoutTemplate,
+        run: () => router.push(ROUTES.studio),
+      },
+      {
+        id: 'go-book',
+        label: '去编排分章节',
+        group: '操作',
+        icon: BookOpen,
+        run: () => router.push(ROUTES.book),
+      },
+      {
+        id: 'go-trash',
+        label: '打开回收站',
+        hint: '恢复删掉的照片',
+        group: '操作',
+        icon: Trash2,
+        run: () => router.push(ROUTES.trash),
       },
     ];
 

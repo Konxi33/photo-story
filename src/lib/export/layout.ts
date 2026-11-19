@@ -151,6 +151,9 @@ export function legacyLayout(settings: ExportSettings): PageLayout {
 
 /** 取这一页实际用的排版 */
 export function resolveLayout(settings: ExportSettings): PageLayout {
+  // 0.6.1：对话框里关掉「按排版台的位置印」时，不是回到老的流式排版，
+  // 而是把当前板块按顺序折成竖排网格 —— 流式排版保证不了「图和字不跨页」。
+  if (settings.useGrid === false) return legacyLayout(settings);
   const grid = settings.grid;
   if (grid && Array.isArray(grid.items) && grid.items.length > 0) {
     return normalizeLayout(grid);
@@ -544,7 +547,37 @@ export interface LayoutPlan {
  * Word 与 PDF 都照着它画，翻页预览也照着它画。
  */
 export function planLayoutPage(input: LayoutPlanInput): LayoutPlan {
-  const layout = resolveLayout(input.settings);
+  const base = resolveLayout(input.settings);
+  let layout: PageLayout = {
+    ...base,
+    items: base.items.map((item) => ({ ...item })),
+  };
+  let plan = planOnce(layout, input);
+
+  // 0.6.1：文字放不下时，先让照片把行数让出来（最少让到 MIN_BOX.image 的高），
+  // 让完还放不下才截断 —— 用户抱怨「字超出自定义框」，多半是照片占得太满。
+  const image = layout.items.find((item) => item.id === 'image');
+  if (image) {
+    let guard = 0;
+    const minRows = MIN_BOX.image?.rowSpan ?? 6;
+    while (plan.items.some((i) => i.truncated) && image.rowSpan > minRows && guard < 16) {
+      guard += 1;
+      const oldBottom = image.row + image.rowSpan;
+      image.rowSpan -= 1;
+      const newBottom = image.row + image.rowSpan;
+      const freed = oldBottom - newBottom;
+      for (const item of layout.items) {
+        if (item === image) continue;
+        if (item.row >= oldBottom) item.row -= freed;
+      }
+      plan = planOnce(layout, input);
+    }
+  }
+
+  return plan;
+}
+
+function planOnce(layout: PageLayout, input: LayoutPlanInput): LayoutPlan {
   const rowH = rowHCm(layout, input.contentHeightCm);
   const colW = colWCm(layout, input.contentCm);
   const items: ItemPlan[] = [];

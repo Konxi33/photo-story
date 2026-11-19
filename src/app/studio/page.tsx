@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   Check,
+  FolderOpen,
   Grid3x3,
   Loader2,
   MousePointer2,
@@ -30,6 +31,7 @@ import {
 
 import { AppShell } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -38,6 +40,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ROUTES } from '@/config/app';
+import { DEFAULT_APP_SETTINGS, STORAGE_KEY_APP_SETTINGS } from '@/config/app';
+import { KvRepository } from '@/lib/db';
+import type { AppSettings } from '@/types/domain';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import { reviewLayout } from '@/lib/ai/layoutReview';
 import { ModuleGuide } from '@/components/module-guide';
@@ -59,6 +64,13 @@ import {
   type LayoutItem,
   type PageLayout,
 } from '@/lib/export/layout';
+import {
+  listLayouts,
+  removeLayout,
+  saveLayout,
+  suggestLayoutName,
+  type SavedLayout,
+} from '@/lib/export/layout-store';
 import type { Photo, PhotoAnalysis, Project, ProjectSummary } from '@/types/domain';
 
 interface DragState {
@@ -86,6 +98,12 @@ export default function StudioPage() {
   const [advice, setAdvice] = useState<{ summary: string; issues: string[]; changes: string[] } | null>(null);
   const [fromTemplate, setFromTemplate] = useState(true);
 
+  // 0.6.1：方案库 + 换一张样片看效果
+  const [layouts, setLayouts] = useState<SavedLayout[]>([]);
+  const [layoutName, setLayoutName] = useState('');
+  const [busyLayout, setBusyLayout] = useState(false);
+  const [sampleId, setSampleId] = useState<string>('');
+
   const historyRef = useRef<PageLayout[]>([]);
   const futureRef = useRef<PageLayout[]>([]);
   const [, forceRender] = useState(0);
@@ -98,12 +116,30 @@ export default function StudioPage() {
 
   const contentCm = project ? exportContentCm(project.exportSettings) : 16.6;
   const contentHeightCm = project ? exportContentHeightCm(project.exportSettings) : 25.2;
-  const sample = useMemo<Photo | undefined>(
-    () => photos.find((photo) => photo.status === 'success' && photo.analysis) ?? photos[0],
+  // 0.6.1：画布上展示「哪一张照片」可以由用户换，方便看不同比例的照片在这套版式里什么样
+  const renderable = useMemo(
+    () => photos.filter((photo) => photo.status === 'success'),
     [photos],
   );
+  const sample = useMemo<Photo | undefined>(() => {
+    if (sampleId) {
+      const hit = renderable.find((photo) => photo.id === sampleId);
+      if (hit) return hit;
+    }
+    return renderable.find((photo) => photo.analysis) ?? renderable[0] ?? photos[0];
+  }, [renderable, photos, sampleId]);
+  const sampleIndex = sample ? renderable.findIndex((photo) => photo.id === sample.id) : -1;
   const sampleAnalysis = sample?.status === 'success' ? sample.analysis : undefined;
 
+  const switchSample = useCallback(
+    (delta: number) => {
+      if (renderable.length < 2) return;
+      const current = sampleIndex >= 0 ? sampleIndex : 0;
+      const next = (current + delta + renderable.length) % renderable.length;
+      setSampleId(renderable[next].id);
+    },
+    [renderable, sampleIndex],
+  );
   /* ------------------------------ 载入 ------------------------------ */
 
   useEffect(() => {
@@ -134,8 +170,17 @@ export default function StudioPage() {
       // 已经有自己的 grid 就照用；否则先给一版好看的模板，
       // 别拿 0.5.x 那套竖排（图片格又高又窄，画布上看像排错了）。
       const saved = full?.exportSettings.grid;
+      // 没存过版式时用「设置 → 外观/排版」里选的默认模板（默认还是摄影集）
+      let preset = getLayoutPreset('photobook')!;
+      try {
+        const settings = await KvRepository.get<AppSettings>(STORAGE_KEY_APP_SETTINGS);
+        const wanted = { ...DEFAULT_APP_SETTINGS, ...(settings ?? {}) }.defaultLayoutPreset;
+        if (wanted) preset = getLayoutPreset(wanted) ?? preset;
+      } catch {
+        /* 读不到设置就用摄影集，不影响使用 */
+      }
       const nextLayout =
-        saved && saved.items.length > 0 ? resolveLayout(full!.exportSettings) : getLayoutPreset('photobook')!.layout;
+        saved && saved.items.length > 0 ? resolveLayout(full!.exportSettings) : preset.layout;
       setLayout(nextLayout);
       setFromTemplate(!(saved && saved.items.length > 0));
       setDirty(false);
@@ -144,24 +189,42 @@ export default function StudioPage() {
       futureRef.current = [];
 
       const first = list.find((photo) => photo.status === 'success');
+      setSampleId(first?.id ?? '');
       if (urlRef.current) {
         URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
         setPreviewUrl(null);
-      }
-      if (first) {
-        const asset = await AssetRepository.get(first.id, 'preview');
-        if (alive && asset) {
-          const url = URL.createObjectURL(asset.blob);
-          urlRef.current = url;
-          setPreviewUrl(url);
-        }
       }
     })().catch(() => toast.error('读取项目内容失败'));
     return () => {
       alive = false;
     };
   }, [projectId]);
+
+  // 画布上的样片换人时重新取图（preview 变体最长边 640，够看版式）
+  useEffect(() => {
+    const id = sample?.id;
+    if (!id) {
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current);
+        urlRef.current = null;
+      }
+      setPreviewUrl(null);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      const asset = await AssetRepository.get(id, 'preview');
+      if (!alive || !asset) return;
+      const url = URL.createObjectURL(asset.blob);
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = url;
+      setPreviewUrl(url);
+    })().catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [sample?.id]);
 
   useEffect(
     () => () => {
@@ -247,6 +310,53 @@ export default function StudioPage() {
     },
     [commit],
   );
+
+  /* ---------------------------- 方案库 ---------------------------- */
+
+  useEffect(() => {
+    listLayouts()
+      .then(setLayouts)
+      .catch(() => undefined);
+  }, []);
+
+  const handleSaveLayout = useCallback(async () => {
+    if (!project) return;
+    setBusyLayout(true);
+    try {
+      const merged = await saveLayout(layoutName || suggestLayoutName(layoutRef.current), layoutRef.current, project.id);
+      setLayouts(merged);
+      setLayoutName(merged[0]?.name ?? '');
+      toast.success('已存进方案库', { description: '换项目也能套用这套版式' });
+    } catch (error) {
+      toast.error('保存方案失败', { description: (error as Error).message });
+    } finally {
+      setBusyLayout(false);
+    }
+  }, [layoutName, project]);
+
+  const handleApplyLayout = useCallback(
+    (id: string) => {
+      const hit = layouts.find((row) => row.id === id);
+      if (!hit) return;
+      commit({ ...hit.layout });
+      setSelected(null);
+      toast.success(`已套用「${hit.name}」`);
+    },
+    [commit, layouts],
+  );
+
+  const handleRemoveLayout = useCallback(async (id: string) => {
+    setBusyLayout(true);
+    try {
+      const merged = await removeLayout(id);
+      setLayouts(merged);
+      toast.success('方案已删除');
+    } catch (error) {
+      toast.error('删除方案失败', { description: (error as Error).message });
+    } finally {
+      setBusyLayout(false);
+    }
+  }, []);
 
   /* ---------------------------- 拖拽逻辑 ---------------------------- */
 
@@ -336,6 +446,59 @@ export default function StudioPage() {
   }, []);
 
   /* ------------------------------ 保存 ------------------------------ */
+
+  /* ------------------------ 键盘微调（0.6.1） ------------------------ */
+
+  // 选中一块后：方向键挪一格，Shift+方向键改大小，Delete 移除，Ctrl+Z 撤销。
+  // 拖拽虽然直观，但想「正好对齐到第 3 列」时按一次方向键更省事。
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+
+      const meta = event.metaKey || event.ctrlKey;
+      if (meta && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (!selected) return;
+
+      const current = layoutRef.current;
+      const item = current.items.find((row) => row.id === selected);
+      if (!item) return;
+
+      const deltas: Record<string, [number, number]> = {
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+      };
+
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        removeBlock(selected);
+        return;
+      }
+
+      const delta = deltas[event.key];
+      if (!delta) return;
+      event.preventDefault();
+
+      const nextItem: LayoutItem = event.shiftKey
+        ? { ...item, colSpan: item.colSpan + delta[0], rowSpan: item.rowSpan + delta[1] }
+        : { ...item, col: item.col + delta[0], row: item.row + delta[1] };
+      const fitted = clampItem(nextItem, current);
+      const others = current.items.filter((row) => row.id !== selected);
+      if (others.some((row) => overlaps(row, fitted))) return;
+      commit({ ...current, items: current.items.map((row) => (row.id === selected ? fitted : row)) });
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [commit, redo, removeBlock, selected, undo]);
 
   const save = useCallback(async () => {
     if (!project) return;
@@ -498,6 +661,34 @@ export default function StudioPage() {
             ) : null}
           </div>
 
+          {/* 样片：画布上的照片可以换，看不同比例在这套版式里什么样 */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line/60 bg-surface px-3 py-2">
+            <span className="text-[11px] text-ink-faint">画布上的样片</span>
+            <button
+              type="button"
+              onClick={() => switchSample(-1)}
+              disabled={renderable.length < 2}
+              aria-label="上一张样片"
+              className="rounded-full border border-line/70 px-2 py-0.5 text-[11px] text-ink-soft transition hover:border-ink/30 hover:text-ink disabled:opacity-40"
+            >
+              上一张
+            </button>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
+              {sample
+                ? `${sampleAnalysis?.title || sample.fileName}${sampleIndex >= 0 ? ` · 第 ${sampleIndex + 1}/${renderable.length} 张` : ''}`
+                : '这个项目还没有可显示的照片'}
+            </span>
+            <button
+              type="button"
+              onClick={() => switchSample(1)}
+              disabled={renderable.length < 2}
+              aria-label="下一张样片"
+              className="rounded-full border border-line/70 px-2 py-0.5 text-[11px] text-ink-soft transition hover:border-ink/30 hover:text-ink disabled:opacity-40"
+            >
+              下一张
+            </button>
+          </div>
+
           {/* A4 纸 */}
           <div className="rounded-2xl border border-line/60 bg-surface-2/60 p-4">
             <div
@@ -594,6 +785,57 @@ export default function StudioPage() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          <section className="rounded-2xl border border-line/60 bg-surface p-3">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+              <FolderOpen className="size-4 text-ink-faint" />
+              方案库
+            </h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
+              摆好的一套版式存起来，换项目、换册子都能一键套用。
+            </p>
+
+            {layouts.length > 0 ? (
+              <div className="mt-2 space-y-1.5">
+                {layouts.slice(0, 6).map((row) => (
+                  <div key={row.id} className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyLayout(row.id)}
+                      className="min-w-0 flex-1 truncate rounded-lg border border-line/60 px-2 py-1 text-left text-[12px] text-ink-soft transition hover:border-ink/30 hover:text-ink"
+                      title={`套用「${row.name}」`}
+                    >
+                      {row.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveLayout(row.id)}
+                      disabled={busyLayout}
+                      aria-label={`删除方案「${row.name}」`}
+                      className="rounded-md p-1 text-ink-faint transition hover:text-red-600 disabled:opacity-40"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-[11px] text-ink-faint">还没有存过方案。</p>
+            )}
+
+            <div className="mt-2 flex items-center gap-1.5">
+              <Input
+                value={layoutName}
+                onChange={(event) => setLayoutName(event.target.value)}
+                placeholder={suggestLayoutName(layout)}
+                aria-label="方案名字"
+                className="h-8 text-[12px]"
+              />
+              <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => void handleSaveLayout()} disabled={busyLayout || !project}>
+                存为方案
+              </Button>
+            </div>
           </section>
 
           <section className="rounded-2xl border border-line/60 bg-surface p-3">

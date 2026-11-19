@@ -40,6 +40,31 @@ const KIND_CHIP: Record<ChangelogKind, string> = {
 
 type Filter = 'all' | ChangelogKind;
 
+/**
+ * 0.6.1：把一条更新拆成「粗体提要 + 细说」。
+ * 原来每条都是一整行小字，一屏看过去全是字，抓不到重点。
+ * 规则：优先用「：」切；没有就用第一个逗号；都没有就取前 12 个字当提要。
+ */
+function splitItem(text: string): { lead: string; sep: string; rest: string } {
+  const colon = text.indexOf('：');
+  if (colon > 0 && colon <= 18)
+    return { lead: text.slice(0, colon), sep: '：', rest: text.slice(colon + 1).trim() };
+  const sep = text.indexOf('，');
+  if (sep > 0 && sep <= 14)
+    return { lead: text.slice(0, sep), sep: '，', rest: text.slice(sep + 1).trim() };
+  if (text.length <= 14) return { lead: text, sep: '', rest: '' };
+  return { lead: text.slice(0, 12), sep: '…', rest: text.slice(12) };
+}
+
+const KIND_WEIGHT: Record<ChangelogKind, number> = { new: 0, fix: 1, polish: 2 };
+
+/** 挑出最多 3 条「这一版最值得知道的」，优先新增、其次修复、最后优化 */
+function pickHighlights<T extends { kind: ChangelogKind }>(items: T[], max = 3): T[] {
+  return [...items]
+    .sort((a, b) => KIND_WEIGHT[a.kind] - KIND_WEIGHT[b.kind])
+    .slice(0, max);
+}
+
 export default function ChangelogPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [open, setOpen] = useState<Set<string>>(() => new Set([APP_VERSION]));
@@ -142,6 +167,8 @@ export default function ChangelogPage() {
             const isOpen = open.has(entry.version);
             const shown = filter === 'all' ? metas : metas.filter((m) => m.kind === filter);
             const dimmed = filter !== 'all' && shown.length === 0;
+            // 每版挑 3 条当「亮点」，剩下的按类型列在下面（亮点不重复出现）
+            const hl = filter === 'all' ? pickHighlights(shown) : [];
 
             return (
               <article
@@ -230,8 +257,40 @@ export default function ChangelogPage() {
                 >
                   <div className="overflow-hidden">
                     <div className="grid gap-3 pt-2 pb-3">
+                      {hl.length > 0 && (
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {hl.map((item) => {
+                            const Icon = KIND_ICON[item.kind];
+                            const { lead, rest } = splitItem(item.text);
+                            return (
+                              <div
+                                key={item.kind + lead}
+                                className="group rounded-xl border border-line/50 bg-surface-2/50 p-3 transition-all duration-[220ms] hover:-translate-y-0.5 hover:border-line hover:shadow-[0_10px_26px_-18px_rgba(0,0,0,0.5)]"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <Icon className={cn('h-3.5 w-3.5', KIND_TONE[item.kind])} />
+                                  <span className={cn('text-[10px] leading-none', KIND_TONE[item.kind])}>
+                                    {CHANGELOG_KINDS.find((k) => k.id === item.kind)?.label}
+                                  </span>
+                                </div>
+                                <p className="mt-1.5 text-[13px] leading-[1.5] font-semibold tracking-[-0.01em] text-ink">
+                                  {lead}
+                                </p>
+                                {rest && (
+                                  <p className="mt-1 line-clamp-3 text-[11.5px] leading-[1.6] text-ink-faint">
+                                    {rest}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       {CHANGELOG_KINDS.map((kind) => {
-                        const list = shown.filter((m) => m.kind === kind.id);
+                        const list = shown.filter(
+                          (m) => m.kind === kind.id && !hl.some((h) => h === m),
+                        );
                         if (list.length === 0) return null;
                         const Icon = KIND_ICON[kind.id];
                         return (
@@ -243,15 +302,22 @@ export default function ChangelogPage() {
                               <span className="text-ink-faint tabular-nums">{list.length}</span>
                             </h3>
                             <ul className="grid gap-1">
-                              {list.map((item, i) => (
-                                <li
-                                  key={kind.id + i}
-                                  className="flex gap-2 text-[12.5px] leading-[1.7] text-ink-mid"
-                                >
-                                  <span className="mt-[8px] h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint/70" />
-                                  {item.text}
-                                </li>
-                              ))}
+                              {list.map((item, i) => {
+                                const { lead, sep, rest } = splitItem(item.text);
+                                return (
+                                  <li
+                                    key={kind.id + i}
+                                    className="flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-2/50"
+                                  >
+                                    <span className="mt-[9px] h-[3px] w-[3px] shrink-0 rounded-full bg-ink-faint/70" />
+                                    <p className="min-w-0 text-[12.5px] leading-[1.7] text-ink-mid">
+                                      <span className="font-medium text-ink">{lead}</span>
+                                      {sep && <span className="text-ink-faint">{sep}</span>}
+                                      {rest}
+                                    </p>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </section>
                         );

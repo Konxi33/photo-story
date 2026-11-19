@@ -68,6 +68,7 @@ import {
 } from '@/config/styles';
 import { KvRepository } from '@/lib/db';
 import { FRAME_PRESETS } from '@/lib/export/frame';
+import { LAYOUT_PRESETS } from '@/lib/export/layout';
 import { applyAppearance } from '@/lib/appearance';
 import {
   checkForUpdate,
@@ -155,9 +156,12 @@ export default function SettingsPage() {
   const [exportDir, setExportDir] = useState('');
   const [revealAfterExport, setRevealAfterExport] = useState(true);
 
+  // 0.6.1：打开软件先落在哪、排版台默认用哪套模板
+  const [startPage, setStartPage] = useState<'home' | 'projects' | 'keep'>('home');
+  const [defaultLayoutPreset, setDefaultLayoutPreset] = useState('photobook');
+
   // 0.5.7：版本更新
-  const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
-  const [updateChecking, setUpdateChecking] = useState(false);
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);  const [updateChecking, setUpdateChecking] = useState(false);
   const [updateResult, setUpdateResult] = useState<{
     ok: boolean;
     info?: UpdateInfo;
@@ -261,6 +265,8 @@ export default function SettingsPage() {
         setExportDir(s.exportDir ?? '');
         setRevealAfterExport(s.revealAfterExport !== false);
         setAutoCheckUpdates(s.autoCheckUpdates !== false);
+        setStartPage(s.startPage ?? 'home');
+        setDefaultLayoutPreset(s.defaultLayoutPreset ?? 'photobook');
       } catch {
         // 忽略
       }
@@ -329,6 +335,8 @@ export default function SettingsPage() {
         exportDir,
         revealAfterExport,
         autoCheckUpdates,
+        startPage,
+        defaultLayoutPreset,
       }),
     [
       provider,
@@ -365,6 +373,8 @@ export default function SettingsPage() {
       exportDir,
       revealAfterExport,
       autoCheckUpdates,
+      startPage,
+      defaultLayoutPreset,
     ],
   );
 
@@ -458,6 +468,8 @@ export default function SettingsPage() {
         exportDir,
         revealAfterExport,
         autoCheckUpdates,
+        startPage,
+        defaultLayoutPreset,
       };
       await KvRepository.set(STORAGE_KEY_APP_SETTINGS, appSettings);
 
@@ -590,6 +602,7 @@ export default function SettingsPage() {
             ['look', '外观'],
             ['perf', '性能'],
             ['photo', '照片与相框'],
+            ['start', '打开与默认'],
             ['app', '应用'],
             ['update', '版本更新'],
             ['store', '存储与导出'],
@@ -986,6 +999,42 @@ export default function SettingsPage() {
         </Section>
 
         {/* 应用 */}
+        <Section id="start" title="打开与默认" desc="打开软件先看到什么、排版台默认用哪套版式">
+          <Field label="打开软件先落在">
+            <Segmented
+              block
+              ariaLabel="打开软件先落在"
+              value={startPage}
+              onChange={(id) => setStartPage(id)}
+              options={[
+                { value: 'home', label: '主菜单', title: '先看整本软件的封面与入口' },
+                { value: 'projects', label: '项目', title: '直接进项目列表，适合天天干活' },
+                { value: 'keep', label: '上次的页面', title: '从哪走的就从哪回来' },
+              ]}
+            />
+          </Field>
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            「上次的页面」只记路由，不会恢复未保存的操作。
+          </p>
+          <Field label="排版台默认版式">
+            <Select value={defaultLayoutPreset} onValueChange={setDefaultLayoutPreset}>
+              <SelectTrigger className="h-9 w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LAYOUT_PRESETS.map((preset) => (
+                  <SelectItem key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            只在「这个项目还没存过版式」时生效；存过之后就以项目里那套为准。
+          </p>
+        </Section>
+
         <Section id="app" title="应用" desc="原来顶部菜单里的刷新、缩放、开发者工具都收在这里">
           <div className="grid gap-2 sm:grid-cols-2">
             <Button

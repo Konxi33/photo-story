@@ -287,7 +287,13 @@ export function buildGridPhotoSection(params: GridSectionParams): (Paragraph | T
   const plan = planLayoutPage({ photo, index, settings, contentCm, contentHeightCm });
 
   const out: (Paragraph | Table)[] = [];
-  const heightCm = contentHeightCm;
+  // 0.6.1：高度预算要把「同一页顶上的紧凑章头」和「表后那一小段空隙」都算进去。
+  // 关键教训：LibreOffice / Word 里 `HeightRule.EXACT` **不会裁掉超出的内容**，
+  // 单元格里的嵌套小表（拍摄参数、评分卡）一旦比格子高，整行就会长高，
+  // 表格因此比页面高一点点 —— 最后那一行被挤到下一页，看起来就是一张白纸。
+  // 所以宁可多留 2.6cm：少印两行字，也不能让每张照片后面跟一张白页。
+  const headingCm = heading && heading.length > 0 ? 3.4 : 0;
+  const heightCm = Math.max(6, contentHeightCm - 2.6 - headingCm);
 
   // 0.6.0 起不再插分页段落：网格页永远是 24 行、占满版心，下一张表自然顶到
   // 新的一页去。之前用「段落 + 分页符」，表格前后夹一个分页段落时

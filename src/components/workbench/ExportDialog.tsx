@@ -176,6 +176,19 @@ export function ExportDialog({
     [selectedPhotos],
   );
 
+  // 0.6.1：印刷账 —— 一张纸两面的书，页数得取 4 的倍数才好装订成帖
+  const pageEstimate = useMemo(() => {
+    if (selectedPhotos.length === 0) return null;
+    const picked = new Set(selectedPhotos.map((photo) => photo.id));
+    const openers = chapters.filter(
+      (chapter) => chapter.photoIds.filter((id) => picked.has(id)).length >= 4,
+    ).length;
+    const appendix = (captionStyle ?? 'title') !== 'both';
+    const total =
+      (includeCover ? 1 : 0) + (includeOverview ? 1 : 0) + selectedPhotos.length + openers + (appendix ? 1 : 0);
+    return { total, appendix, pad4: (4 - (total % 4)) % 4 };
+  }, [selectedPhotos, chapters, includeCover, includeOverview, captionStyle]);
+
   useEffect(() => {
     if (!open) return;
     void (async () => {
@@ -234,6 +247,13 @@ export function ExportDialog({
     applySettings(project.exportSettings);
     setProgress(null);
     setDetail(null);
+    // 记住上次选的格式：常印稿子的人每次都要重新点一下 PDF 很烦
+    try {
+      const saved = window.localStorage.getItem('ps:export-format');
+      if (saved === 'docx' || saved === 'pdf' || saved === 'pptx') setFormat(saved);
+    } catch {
+      /* 隐私模式下 localStorage 可能不可用，忽略 */
+    }
   }, [open, project.exportSettings]);
 
   useEffect(() => {
@@ -394,6 +414,11 @@ export function ExportDialog({
     setDetail(null);
 
     const settings = buildSettings();
+    try {
+      window.localStorage.setItem('ps:export-format', format);
+    } catch {
+      /* 忽略：存不下不影响这次导出 */
+    }
     // 保存到项目时永远保留排版台画布（哪怕这次临时关掉了），
     // 否则「关掉开关导一次」会把在排版台摆好的位置永久清掉。
     await ProjectRepository.update(project.id, {
@@ -1013,6 +1038,18 @@ export function ExportDialog({
         {chapterCount > 0 && (
           <p className="text-[11.5px] text-ink-faint">
             会按「编排」里的 {chapterCount} 个章节顺序排版，并插入章节扉页。
+          </p>
+        )}
+
+        {/* 0.6.1：印刷账 —— 一张纸两面的书，页数得取 4 的倍数才好装订成帖 */}
+        {pageEstimate && isWordLike && (
+          <p className="text-[11.5px] text-ink-faint">
+            预计 {pageEstimate.total} 页
+            {pageEstimate.appendix ? '（含封面、总览、章扉与技术附录）' : '（含封面与总览）'}
+            {pageEstimate.pad4 > 0
+              ? ` · 按装订成帖要取 4 的倍数，还差 ${pageEstimate.pad4} 页`
+              : ' · 页数正好是 4 的倍数，可以直接装订'}
+            。
           </p>
         )}
 

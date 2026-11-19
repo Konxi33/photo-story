@@ -305,6 +305,10 @@ export interface AppSettings {
   exportDir?: string;
   /** 0.5.4：导出完成后是否在资源管理器中选中文件 */
   revealAfterExport?: boolean;
+  /** 0.6.1：打开软件先落在哪一页（home = 主菜单，projects = 项目，keep = 上次的页面） */
+  startPage?: 'home' | 'projects' | 'keep';
+  /** 0.6.1：排版台新建版式时的默认模板 id（见 layout.ts 的 LAYOUT_PRESETS） */
+  defaultLayoutPreset?: string;
   /** 0.5.7：启动时是否自动检查新版本（默认开） */
   autoCheckUpdates?: boolean;
 }

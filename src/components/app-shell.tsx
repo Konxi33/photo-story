@@ -29,7 +29,7 @@ import { toast } from 'sonner';
 
 import { CommandPalette } from '@/components/command-palette';
 import { ShortcutsDialog } from '@/components/shortcuts-dialog';
-import { APP_NAME, APP_VERSION, STORAGE_KEY_APP_SETTINGS } from '@/config/app';
+import { APP_NAME, APP_VERSION, ROUTES, STORAGE_KEY_APP_SETTINGS } from '@/config/app';
 import { moduleTagline } from '@/config/modules';
 import {
   DEFAULT_APPEARANCE,
@@ -193,8 +193,45 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     })();
   }, []);
 
-  // 0.5.7：启动 6 秒后检查一次新版本（本地 1 小时节流），发现新版用一条 toast 提示。
-  // 这里只引轻量的 updater 模块，不引入任何弹窗组件，避免拖慢首屏。
+  // 0.6.1：启动页 —— 记下上次停在哪个页面，并按设置决定一开始落在哪
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const LAST_KEY = 'ps:last-route';
+    let done = false;
+    void (async () => {
+      try {
+        const saved =
+          (await withTimeout(KvRepository.get<AppSettings>(STORAGE_KEY_APP_SETTINGS), 2500, null)) ?? null;
+        const mode = saved?.startPage ?? 'home';
+        const last = window.localStorage.getItem(LAST_KEY);
+        if (mode === 'projects' && pathname === ROUTES.home) {
+          done = true;
+          router.replace(ROUTES.projects);
+        } else if (mode === 'keep' && pathname === ROUTES.home && last && last !== ROUTES.home) {
+          done = true;
+          router.replace(last);
+        }
+      } catch {
+        /* 读不到设置就按默认主菜单 */
+      }
+    })();
+    return () => {
+      void done;
+    };
+    // 只在挂载时跑一次：用户自己点了侧栏之后不该再被拽走
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !pathname) return;
+    try {
+      window.localStorage.setItem('ps:last-route', pathname);
+    } catch {
+      /* 忽略 */
+    }
+  }, [pathname]);
+
+  // 0.5.7：启动 6 秒后检查一次新版本（本地 1 小时节流），发现新版用一条 toast 提示。  // 这里只引轻量的 updater 模块，不引入任何弹窗组件，避免拖慢首屏。
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let alive = true;

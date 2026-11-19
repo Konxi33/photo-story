@@ -27,7 +27,8 @@ import {
 import type { ExportSettings, Photo, Project } from '@/types/domain';
 
 import { buildAppendix } from './appendix';
-import { buildPhotoSection } from './body';
+// 0.6.1：流式排版（buildPhotoSection）已不再用于导出 —— 它保证不了「一张图和它的文字不跨页」。
+// 所有单页现在都走 buildGridPhotoSection（12×24 网格表），需要老观感时由 resolveLayout 折成竖排网格。
 import { buildGridPhotoSection } from './word-grid';
 import { buildChapterHeading, buildChapterOpener, planChapters, type ChapterPlan } from './chapter';
 import { buildCoverSection } from './cover';
@@ -110,43 +111,34 @@ export function buildDocument(params: BuildDocumentParams): Document {
   const ordered: Photo[] = [];
 
   /**
-   * 0.6.0：一页照片怎么画。
-   * 有 `settings.grid`（用户在画布上摆过积木）就走网格渲染，否则沿用 0.5.7 的
-   * 板块竖排 —— 老项目升级上来版式不变。
+   * 0.6.1：**一律走网格渲染**。
+   * 起因是用户实测两件事：①默认模板（竖排流式）会出现「图在这页、说明跑到下一页」；
+   * ②自己摆的版式里文字超出格子、多的字塞不下。
+   * 网格页是「一张 12×24 的表格 + 不跨行」，天然不会把一张照片和它的文字拆到两页；
+   * 放不下时 `planLayoutPage` 会先缩字号、再让照片腾行，最后才截断。
+   * 没有 `settings.grid` 的老项目用 `resolveLayout()` 折成竖排网格，观感与旧版接近。
    */
-  const useGrid = Boolean(
-    settings.useGrid !== false && settings.grid && settings.grid.items && settings.grid.items.length > 0,
-  );
   const contentCm = exportContentCm(settings);
   const fullHeightCm = exportContentHeightCm(settings);
 
   const photoPage = (
     photo: Photo,
     index: number,
-    opts: { isFirst: boolean; hasChapterHeading?: boolean },
+    opts: { isFirst: boolean; hasChapterHeading?: boolean; heading?: (Paragraph | Table)[] },
   ): (Paragraph | Table)[] => {
     const image = images.get(photo.id) ?? null;
-    if (!useGrid) {
-      return buildPhotoSection({
-        photo,
-        index,
-        image,
-        settings,
-        isFirst: opts.isFirst,
-        hasChapterHeading: opts.hasChapterHeading,
-      });
-    }
-    // 紧凑章头压在同一页顶端时要给它让出高度（实测约 2.6cm）。
-    // 多留 0.3cm 余量：网格表格是「24 行 × 精确行高」，正好占满版心时
-    // LibreOffice 会把整张表推到下一页，结果每章第一页只剩章头（实测 39 页）。
-    const reservedCm = opts.hasChapterHeading ? 3.2 : 0;
     return buildGridPhotoSection({
       photo,
       index,
       image,
       settings,
       contentCm,
-      contentHeightCm: Math.max(6, fullHeightCm - reservedCm),
+      // 0.6.1：章头高度由 word-grid 自己扣（它得知道这一页顶上有没有章头），
+      // 所以章头必须作为 `heading` 传进去，不能在外面单独 push —— 否则
+      // 表格按整页高排、章头再压在顶上，两者相加超出页高，LibreOffice 会把
+      // 整块推到下一页，结果每章多一张白页（实测 20 张照片印成 37 页）。
+      contentHeightCm: fullHeightCm,
+      heading: opts.heading,
       pageBreakBefore: !opts.isFirst,
     });
   };
@@ -158,14 +150,15 @@ export function buildDocument(params: BuildDocumentParams): Document {
     const compact = entry.photos.length <= 3;
 
     if (compact) {
-      children.push(
-        ...buildChapterHeading({
-          index: chapterIdx + 1,
-          title: entry.chapter.title,
-          note: entry.chapter.note,
-          contentWidthCm: exportContentCm(settings),
-        }),
-      );
+      // 0.6.1：章头不再单独 push 进 children，而是随第一张照片一起交给
+      // word-grid —— 只有它知道这页顶上占了多少高度，才能把 12×24 表格
+      // 压到「章头 + 照片页 ≤ 一页」以内。否则每章都会多出一张白页。
+      const heading = buildChapterHeading({
+        index: chapterIdx + 1,
+        title: entry.chapter.title,
+        note: entry.chapter.note,
+        contentWidthCm: exportContentCm(settings),
+      });
       hasPreviousContent = true;
 
       entry.photos.forEach((photo, i) => {
@@ -176,6 +169,7 @@ export function buildDocument(params: BuildDocumentParams): Document {
             // 章头已经把这页开好了，第一张照片别再分一次页
             isFirst: i === 0,
             hasChapterHeading: i === 0,
+            heading: i === 0 ? heading : undefined,
           }),
         );
       });
