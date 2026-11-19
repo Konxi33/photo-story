@@ -1345,23 +1345,27 @@ function Section({
   return (
     <section
       id={id}
-      className="mt-3.5 scroll-mt-24 rounded-[14px] border border-line/60 bg-surface p-5"
+      className="scroll-mt-24 border-t border-line/50 py-6 first:border-t-0 first:pt-0"
     >
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {icon && <span className="text-ink-faint">{icon}</span>}
-        <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-        {desc && <span className="ml-1 text-[11px] text-ink-faint">{desc}</span>}
+      <div className="mb-5">
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-ink-faint">{icon}</span>}
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
+        </div>
+        {desc && <p className="mt-1 text-[12px] leading-relaxed text-ink-faint">{desc}</p>}
       </div>
-      <div className="grid gap-4">{children}</div>
+      <div className="grid gap-4">
+        {children}
+      </div>
     </section>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid gap-1.5">
+    <div className="grid gap-1.5 sm:grid-cols-[132px_minmax(0,1fr)] sm:items-center sm:gap-4">
       <Label className="ps-eyebrow">{label}</Label>
-      {children}
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
