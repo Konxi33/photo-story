@@ -5,7 +5,7 @@
 
 'use client';
 
-import { AlignmentType, Paragraph, TextRun, type Table } from 'docx';
+import { AlignmentType, BorderStyle, Paragraph, TextRun, type Table } from 'docx';
 
 import { PT_TO_HALF_POINT, WORD_BODY, WORD_COLORS, WORD_FONTS, toDocxColor } from '@/config/wordLayout';
 
@@ -172,6 +172,8 @@ export function buildChapterHeading(params: {
   title: string;
   note: string;
   contentWidthCm?: number;
+  /** 0.6.4：紧凑章头（小章节和照片挤在同一页顶上）—— 单行左对齐，不再居中三行 */
+  compact?: boolean;
 }): (Paragraph | Table)[] {
   // 0.5.6：空标题 + 有题记 = 呼吸页
   if (!params.title.trim() && params.note.trim()) {
@@ -184,6 +186,43 @@ export function buildChapterHeading(params: {
   const name = params.title.trim() || '第 ' + params.index + ' 章';
   const contentCm = params.contentWidthCm ?? WORD_BODY.frameCompact.widthCm;
   const blocks: (Paragraph | Table)[] = [];
+
+  // 0.6.4：紧凑章头改成画册口径的一行 —— 章号小字 + 章名大字，左对齐，下面一条细线。
+  // 原来居中三行加满宽分隔线，一页顶上要吃掉 30mm，照片被挤得很小。
+  if (params.compact) {
+    const noteText = params.note.trim();
+    blocks.push(
+      new Paragraph({
+        pageBreakBefore: true,
+        alignment: AlignmentType.LEFT,
+        keepNext: true,
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'D8D8D8', space: 6 } },
+        spacing: { before: 0, after: 160, line: 380, lineRule: 'auto' },
+        children: [
+          new TextRun({
+            ...buildRunStyle(WORD_FONTS.sectionIndex, { color: toDocxColor(WORD_COLORS.lightGray) }),
+            text: '第 ' + pad2(params.index) + ' 章',
+            characterSpacing: 40,
+          }),
+          new TextRun({ text: '　' }),
+          new TextRun({
+            ...buildRunStyle(WORD_FONTS.sectionTitle, { color: toDocxColor(WORD_COLORS.nearBlack) }),
+            text: name,
+          }),
+          ...(noteText
+            ? [
+                new TextRun({ text: '　' }),
+                new TextRun({
+                  ...buildRunStyle(WORD_FONTS.coverSubtitle, { color: toDocxColor(WORD_COLORS.midGray) }),
+                  text: noteText,
+                }),
+              ]
+            : []),
+        ],
+      }),
+    );
+    return blocks;
+  }
 
   blocks.push(
     new Paragraph({

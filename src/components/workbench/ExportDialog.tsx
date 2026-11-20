@@ -56,6 +56,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { ProjectRepository } from '@/lib/db';
 import { readBook } from '@/lib/book/store';
+import { PAGE_STYLES } from '@/lib/export/typography';
 import { clearImageCache, exportToDocx, exportToPdf, exportToPptx } from '@/lib/export';
 import {
   BLOCKS,
@@ -147,6 +148,9 @@ export function ExportDialog({
   // 0.6.3：整本书的「字」与「纸」——字体、纸色、卷首语、后记
   const [bodyFont, setBodyFont] = useState<BookBodyFont>('song');
   const [paper, setPaper] = useState<PaperTintId>('white');
+  // 0.6.4：版式预设与照片圆角
+  const [pageStyleId, setPageStyleId] = useState<'album' | 'essay' | 'archive'>('album');
+  const [photoRadius, setPhotoRadius] = useState<0 | 2 | 4>(0);
   const [prefaceTitle, setPrefaceTitle] = useState('');
   const [preface, setPreface] = useState('');
   const [afterword, setAfterword] = useState('');
@@ -252,6 +256,8 @@ export function ExportDialog({
     setCaptionStyle(s.captionStyle ?? 'title');
     setBodyFont((s.bodyFont as BookBodyFont) ?? 'song');
     setPaper((s.paper as PaperTintId) ?? 'white');
+    setPageStyleId((s.pageStyle as 'album' | 'essay' | 'archive') ?? 'album');
+    setPhotoRadius(((s.photoRadius ?? 0) as 0 | 2 | 4));
     setPrefaceTitle(s.prefaceTitle ?? '');
     setPreface(s.preface ?? '');
     setAfterword(s.afterword ?? '');
@@ -260,7 +266,7 @@ export function ExportDialog({
     setTemplateId(s.templateId ?? '');
     const grid = s.grid && Array.isArray(s.grid.items) && s.grid.items.length > 0 ? s.grid : null;
     setStudioGrid(grid);
-    setUseStudio(grid ? s.useGrid !== false : false);
+    setUseStudio(grid ? s.useCanvas === true : false);
   };
 
   useEffect(() => {
@@ -345,9 +351,12 @@ export function ExportDialog({
         blocks,
         templateId,
         // grid 始终留着（排版台的位置不能因为这次关掉开关就丢），
-        // 用 useGrid 记录「这次按不按画布印」。
+        // 用 useCanvas 记录「这次按不按画布印」。
         grid: studioGrid ?? undefined,
         useGrid: useStudio,
+        useCanvas: useStudio,
+        pageStyle: pageStyleId,
+        photoRadius,
       },
       blocks,
     );
@@ -902,6 +911,37 @@ export function ExportDialog({
               </SettingRow>
               <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
                 {PAPER_TINY_OPTIONS.find((p) => p.id === paper)?.hint}
+              </p>
+
+              {/* 0.6.4：版式预设 —— 换的是「这一页怎么组织」，不是换个皮肤 */}
+              <div className="col-span-2 grid gap-1.5">
+                <span className="text-[13px] font-medium text-ink">版式</span>
+                <Segmented
+                  value={pageStyleId}
+                  onChange={(v) => setPageStyleId(v as 'album' | 'essay' | 'archive')}
+                  options={PAGE_STYLES.map((s) => ({ value: s.id, label: s.label }))}
+                  size="sm"
+                />
+                <p className="text-[11px] leading-relaxed text-ink-faint">
+                  {PAGE_STYLES.find((s) => s.id === pageStyleId)?.hint}
+                </p>
+              </div>
+
+              <SettingRow label="照片圆角">
+                <Select
+                  value={String(photoRadius)}
+                  onValueChange={(v) => setPhotoRadius(Number(v) as 0 | 2 | 4)}
+                >
+                  <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">直角</SelectItem>
+                    <SelectItem value="2">2mm</SelectItem>
+                    <SelectItem value="4">4mm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </SettingRow>
+              <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
+                摄影画册惯例是直角；生活类册子可以给一点圆角
               </p>
 
               <div className="mt-2 grid gap-2">

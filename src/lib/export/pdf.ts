@@ -21,7 +21,7 @@ import { formatCamera, formatExifLine } from '@/lib/image/exif';
 import { formatDate } from '@/lib/utils';
 import type { ExportSettings, Photo, Project, Technique } from '@/types/domain';
 
-import { type PhotoBlockId, planPhotoPage, resolveBlocks } from './blocks';
+import { resolveBlocks } from './blocks';
 import { applyFrame } from './frame';
 import { encodeImageForDocx } from './image-encode';
 import { tidyParam } from './params';
@@ -29,6 +29,8 @@ import { measureTextCm } from './layout';
 import { GRID_HEADING_RESERVE_CM, buildGridPhotoPage } from './pdf-grid';
 import { exportContentCm, exportContentHeightCm, exportMarginCm } from './metrics';
 import { HEAD_FONT_CSS, bodyFontOption, normalizeExportSettings, paperTintOption } from './bookStyle';
+import { type PageEnv, designCss, renderChapterPage, renderFigurePage } from './pdf-design';
+import { pageStyle } from './typography';
 
 interface Candidate {
   photo: Photo;
@@ -136,12 +138,13 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     settings.imageQuality === 'ultra' ? 2000 : settings.imageQuality === 'high' ? 1500 : 1000;
   const layout = resolveLayout(settings);
 
-  const encoded = new Map<string, string | null>();
+  const encoded = new Map<string, { url: string; w: number; h: number } | null>();
   // 总览页单独用 400px 缩略图：直接复用大图会让整份 PDF 里每张照片被嵌两遍
   const thumbs = new Map<string, string | null>();
   let done = 0;
   for (const photo of photos) {
     let dataUrl: string | null = null;
+    let dims: { w: number; h: number } | null = null;
     let thumbUrl: string | null = null;
     try {
       const asset = await AssetRepository.get(photo.id, 'doc');
@@ -162,6 +165,8 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
           framed === asset.blob ? photo.id : photo.id + ':frame',
         );
         dataUrl = toDataUrl(out.data);
+        // 0.6.4：新版式按原始宽高比算图框，所以这里把像素尺寸一起带上
+        dims = { w: out.width, h: out.height };
         if (settings.includeOverview) {
           const small = await encodeImageForDocx(
             framed,
@@ -176,14 +181,14 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
       dataUrl = null;
       thumbUrl = null;
     }
-    encoded.set(photo.id, dataUrl);
+    encoded.set(photo.id, dataUrl ? { url: dataUrl, w: dims?.w ?? 3, h: dims?.h ?? 2 } : null);
     thumbs.set(photo.id, thumbUrl);
     done += 1;
     onProgress?.(done, photos.length);
   }
 
   const items = (list: Photo[]): Candidate[] =>
-    list.map((photo) => ({ photo, dataUrl: encoded.get(photo.id) ?? null }));
+    list.map((photo) => ({ photo, dataUrl: encoded.get(photo.id)?.url ?? null }));
 
   // 0.5.7：PDF 与 Word 共用同一套「板块」顺序（src/lib/export/blocks.ts）。
   // 用户把「点评」拖到图上面，PDF 里也得在图上面。
@@ -194,22 +199,39 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
    * 只要 settings.grid 里真的摆了积木、且没有被 useGrid:false 关掉，就按画布绝对定位来画。
    */
   /**
-   * 0.6.3：PDF 也只有「积木」一条路。
-   * 旧的双栏流式排版（bodyColumns=2 时）会把正文挤到左栏、其它板块挤到右栏并顶出纸边，
-   * 用户实测就是「字错乱 + 被截掉」。关掉排版台时 resolveLayout 会给出竖排的网格，
-   * 于是仍然走同一套绝对定位，只是每块占满整宽。
+   * 0.6.4：默认走新版式（按摄影书排的照片页）。
+   * 只有「用户在排版台按过保存」（applyLayout 会写 useGrid:true）才走积木绝对定位。
+   * 0.6.0–0.6.3 的判据是「有 grid 就走积木」，于是老项目里测试留下的 grid
+   * 把每一页都顶成了绝对定位，新版式根本轮不到 —— 用户看到的就是那个散乱的版面。
    */
-  const useGrid = Boolean(settings.grid && Array.isArray(settings.grid.items) && settings.grid.items.length > 0) && settings.useGrid !== false;
+  const hasGridItems = Boolean(settings.grid && Array.isArray(settings.grid.items) && settings.grid.items.length > 0);
+  const useGrid = hasGridItems && settings.useCanvas === true;
+
+  // 0.6.4：整本书共用的排版环境（字号层级/纸色/字体/版心），所有照片页都从这里取
+  const baseStyle = pageStyle(settings.pageStyle);
+  const style =
+    settings.photoRadius != null && Number.isFinite(settings.photoRadius)
+      ? { ...baseStyle, photo: { ...baseStyle.photo, radiusMm: settings.photoRadius } }
+      : baseStyle;
+  const env: PageEnv = {
+    style,
+    tint,
+    contentW: layout.contentW,
+    contentH: layout.contentH,
+    serifCss: bodyFont.css,
+    sansCss: HEAD_FONT_CSS,
+  };
+  /** 书籍内连续页码：只数正文页（封面不编号） */
+  let folioSeq = 0;
 
   const photoSection = (
     { photo, dataUrl }: Candidate,
     index: number,
     noBreak = false,
     headingReserveCm = GRID_HEADING_RESERVE_CM,
+    chapter?: { no: number; title: string; note?: string },
   ): string => {
     // 积木版：几何、字号、截断全由 planLayoutPage 决定，这里只负责把格子画出来。
-    // noBreak 在积木版里表示「这页顶端压着紧凑章头」，得给章头让出高度；
-    // 章注可能换行，所以让出的高度由调用方按实测文字量算好传进来。
     if (useGrid) {
       return buildGridPhotoPage({
         photo,
@@ -223,30 +245,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
       });
     }
 
+    // 0.6.4 新版式：一页一张、左边线统一、页码在页脚，装不下的整块让位（绝不切字）。
     const a = photo.status === 'success' ? photo.analysis : undefined;
-    const parts: Partial<Record<PhotoBlockId, string>> = {};
+    const dims = encoded.get(photo.id);
+    folioSeq += 1;
 
-    // 0.5.7：这一页的图片能占多高，交给和 Word 完全相同的预算函数算，
-    // 这样「照片 + 它的全部文字」一定落在同一页里（.page 设了 break-inside: avoid）。
-    const fit = planPhotoPage({
-      photo,
-      settings,
-      contentCm: layout.contentW / 10,
-      contentHeightCm: layout.contentH / 10,
-      hasChapterHeading: noBreak,
-    });
-    const imageRoomMm = Math.max(66, Math.round(fit.imageRoomCm * 10));
-
-    if (blocks.includes('index')) parts.index = `<p class="idx">${pad2(index)}</p>`;
-    if (blocks.includes('title')) {
-      parts.title = `<h2>${escapeHtml(a?.title || photo.fileName)}</h2><div class="rule"></div>`;
-    }
-    if (blocks.includes('image') && dataUrl) {
-      parts.image = `<figure><img src="${dataUrl}" alt="${escapeHtml(a?.title || photo.fileName)}" style="max-height:${imageRoomMm}mm"></figure>`;
-    }
-
-    // 图注：与 Word 同一口径（编号 + 标题，参数进附录）
-    const capStyle = settings.captionStyle ?? 'title';
     const paramLine = a?.params
       ? [
           tidyParam(a.params.shutter, 'shutter'),
@@ -255,126 +258,53 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
           tidyParam(a.params.focalLength, 'focal'),
         ]
           .filter((v) => v)
-          .map((v) => escapeHtml(v))
-          .join(' · ')
+          .join('　·　')
       : '';
-    const capTitle = escapeHtml((a?.title || '').trim());
-    const capParts =
-      capStyle === 'param'
-        ? [paramLine]
-        : capStyle === 'both'
-          ? [capTitle, paramLine]
-          : [capTitle || paramLine];
-    const capText = capParts.filter((v) => v).join(' · ');
-    if (blocks.includes('caption') && capText) {
-      parts.caption = `<p class="cap">图 ${pad2(index)} · ${capText}</p>`;
-    }
+    const exifLine = photo.exif
+      ? [formatCamera(photo.exif), formatExifLine(photo.exif)].filter(Boolean).join('　·　')
+      : '';
+    const capStyle = settings.captionStyle ?? 'title';
+    // 图注里那一行参数：按用户的图注口径给，没参数就退回 EXIF（相框已烧参数时这里已为空）
+    const specLine =
+      capStyle === 'title' ? undefined : paramLine || exifLine || undefined;
 
-    if (blocks.includes('story') && a?.story) {
-      parts.story = `<p class="story">${escapeHtml(a.story)}</p>`;
-    }
-
-    if (blocks.includes('technique') && a) {
-      const tech = TECH_LABELS.filter(({ key }) => a.technique[key] && a.technique[key].trim())
-        .map(
-          ({ key, label }) =>
-            `<div class="tech"><span>${label}</span><p>${escapeHtml(a.technique[key])}</p></div>`,
-        )
-        .join('');
-      if (tech) parts.technique = `<div class="techs">${tech}</div>`;
-    }
-
-    if (blocks.includes('exif') && photo.exif) {
-      const camera = formatCamera(photo.exif);
-      const shot = formatExifLine(photo.exif);
-      const stamp = photo.exif.takenAt
-        ? new Date(photo.exif.takenAt).toLocaleString('zh-CN', { hour12: false })
-        : '';
-      const text = [camera, shot, stamp].filter(Boolean).join('　·　');
-      if (text) parts.exif = `<p class="exif">${escapeHtml(text)}</p>`;
-    }
-
-    if (blocks.includes('params') && a?.params) {
-      const chips = [
-        ['焦段', a.params.focalLength],
-        ['光圈', a.params.aperture],
-        ['快门', a.params.shutter],
-        ['ISO', a.params.iso],
-        ['调色', a.params.colorGrade],
-      ]
-        .filter(([, v]) => v && v.trim())
-        .map(([k, v]) => `<span class="chip"><b>${k}</b>${escapeHtml(v as string)}</span>`)
-        .join('');
-      if (chips) parts.params = `<div class="chips">${chips}</div>`;
-    }
-
-    if (blocks.includes('score') && a?.score) {
-      parts.score = `<div class="module score">
-             <div class="score-num">${a.score.overall.toFixed(1)}<small>/100</small></div>
-             <div class="score-grid">
-               ${(
-                 [
-                   ['构图', a.score.breakdown.composition],
-                   ['光线', a.score.breakdown.lighting],
-                   ['调色', a.score.breakdown.color],
-                   ['主体', a.score.breakdown.subject],
-                   ['时机', a.score.breakdown.timing],
-                   ['技术', a.score.breakdown.technique],
-                 ] as const
-               )
-                 .map(
-                   ([k, v]) =>
-                     `<div class="bar"><span>${k}</span><i><em style="width:${Math.min(100, v)}%"></em></i><u>${v.toFixed(1)}</u></div>`,
-                 )
-                 .join('')}
-             </div>
-           </div>`;
-    }
-
-    if (blocks.includes('advice') && a) {
-      const advice = [
-        ['为什么好看', a.whyGood],
-        ['可以更好', a.improve],
-        ['下次这样拍', a.imitate],
-      ].filter(([, list]) => (list as string[]).length > 0);
-      if (advice.length > 0) {
-        parts.advice = `<div class="advice">${advice
-          .map(
-            ([label, list]) =>
-              `<div class="card"><p class="card-title">${label}</p>${(list as string[])
-                .map((item) => `<p class="card-line">· ${escapeHtml(item)}</p>`)
-                .join('')}</div>`,
+    const technique =
+      blocks.includes('technique') && a
+        ? TECH_LABELS.filter(({ key }) => a.technique[key] && a.technique[key].trim()).map(
+            ({ key, label }) => ({ label, text: (a.technique[key] ?? '').trim() }),
           )
-          .join('')}</div>`;
-      }
-    }
+        : [];
 
-    if (blocks.includes('category')) {
-      const category = a?.tags?.[0]?.trim() || a?.mood?.trim() || '';
-      if (category) parts.category = `<p class="category">类别：${escapeHtml(category)}</p>`;
-    }
+    const score = blocks.includes('score') && a?.score
+      ? {
+          overall: a.score.overall,
+          parts: [
+            ['构图', a.score.breakdown.composition],
+            ['光线', a.score.breakdown.lighting],
+            ['调色', a.score.breakdown.color],
+            ['主体', a.score.breakdown.subject],
+            ['时机', a.score.breakdown.timing],
+            ['技术', a.score.breakdown.technique],
+          ] as [string, number][],
+        }
+      : undefined;
 
-    if (blocks.includes('tags') && a && a.tags.length) {
-      parts.tags = `<p class="tags">${a.tags.map((t) => '#' + escapeHtml(t)).join('&nbsp;&nbsp;')}</p>`;
-    }
-
-    if (blocks.includes('mood') && a?.mood) {
-      parts.mood = `<p class="mood">氛围：${escapeHtml(a.mood)}</p>`;
-    }
-
-    if (blocks.includes('alt') && a?.alt) {
-      parts.alt = `<p class="alt">无障碍：${escapeHtml(a.alt)}</p>`;
-    }
-
-    const rendered = blocks
-      .map((id) => parts[id] ?? '')
-      .filter(Boolean)
-      .join('\n      ');
-
-    return `
-    <section class="page figure-page ${noBreak ? '' : 'break'}">
-      ${rendered}
-    </section>`;
+    return renderFigurePage({
+      env,
+      pageNo: folioSeq,
+      index,
+      chapter,
+      url: dataUrl,
+      imgW: dims?.w ?? 3,
+      imgH: dims?.h ?? 2,
+      title: (a?.title || photo.fileName || '').trim(),
+      story: blocks.includes('story') ? a?.story : undefined,
+      specLine,
+      technique,
+      score,
+      tags: blocks.includes('tags') ? a?.tags : undefined,
+      mood: blocks.includes('mood') ? a?.mood : undefined,
+    });
   };
 
   const { chapters, rest } = orderPhotos(photos, params.chapters);
@@ -387,14 +317,24 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     // 与 Word 口径一致：≤3 张的小章节用「紧凑章头」压在同一页顶端，
     // 只有照片够多的章节才单独占一页扉页（否则短的书会被扉页切碎）。
     const single = chapter.photos.length <= 3;
-    bodyParts.push(
-      `<section class="page ${single ? 'chapter-inline' : 'chapter-break'}">
+    const chapterInfo = {
+      no: chapterIndex + 1,
+      title: (chapter.title || '未命名章节').trim(),
+      note: chapter.note?.trim() || undefined,
+    };
+    if (useGrid) {
+      bodyParts.push(
+        `<section class="page ${single ? 'chapter-inline' : 'chapter-break'}">
          <p class="chapter-no">第 ${pad2(chapterIndex + 1)} 章</p>
-         <h3 class="chapter-name">${escapeHtml(chapter.title || '未命名章节')}</h3>
-         ${chapter.note ? `<p class="chapter-note">${escapeHtml(chapter.note)}</p>` : ''}
+         <h3 class="chapter-name">${escapeHtml(chapterInfo.title)}</h3>
+         ${chapterInfo.note ? `<p class="chapter-note">${escapeHtml(chapterInfo.note)}</p>` : ''}
          <div class="rule short"></div>
        </section>`,
-    );
+      );
+    } else if (!single) {
+      // 0.6.4：章扉单独一页（左对齐、上半页留白、不编页码），照片页再从新的一页开始
+      bodyParts.push(renderChapterPage(env, chapterInfo));
+    }
     chapter.photos.forEach((photo, photoIndex) => {
       order += 1;
       // 单张章节：章头已排在同一页顶端，照片别再另起一页。
@@ -405,13 +345,19 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
         ? GRID_HEADING_RESERVE_CM + measureTextCm(chapter.note, layout.contentW / 10, 11, 1.7).needCm + 0.35
         : GRID_HEADING_RESERVE_CM;
       bodyParts.push(
-        photoSection({ photo, dataUrl: encoded.get(photo.id) ?? null }, order, shareHeading, headingReserveCm),
+        photoSection(
+          items([photo])[0],
+          order,
+          shareHeading,
+          headingReserveCm,
+          shareHeading ? chapterInfo : undefined,
+        ),
       );
     });
   });
   rest.forEach((photo) => {
     order += 1;
-    bodyParts.push(photoSection({ photo, dataUrl: encoded.get(photo.id) ?? null }, order));
+    bodyParts.push(photoSection(items([photo])[0], order));
   });
 
   // 0.6.3：卷首语与后记。翻开封面的第一段文字决定了读者还看不看下去，
@@ -441,9 +387,12 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
 
   // 总览页：3 或 4 列缩略图墙，一页之内按张数自动分列
   const overview = settings.includeOverview
-    ? `<section class="page break">
-         <h2 class="ov-title">总览</h2>
-         <div class="rule"></div>
+    ? `<section class="page break ov">
+         <div class="ov-head">
+           <span class="ov-kicker">CONTENTS</span>
+           <h2 class="ov-title">总览</h2>
+           <span class="ov-count">${items(photos).length} 张</span>
+         </div>
          <div class="ov-grid cols-${items(photos).length > 12 ? 4 : 3}">
            ${items(photos)
              .map(
@@ -452,7 +401,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
                  return `
              <figure class="ov-cell">
                ${small ? `<img src="${small}" alt="">` : '<div class="ov-ph"></div>'}
-               <figcaption>${pad2(index + 1)} · ${escapeHtml(photo.analysis?.title || photo.fileName)}</figcaption>
+               <figcaption><b>${pad2(index + 1)}</b>${escapeHtml(photo.analysis?.title || photo.fileName)}</figcaption>
              </figure>`;
                },
              )
@@ -461,12 +410,24 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
        </section>`
     : '';
 
+  // 0.6.4：封面改成「一张照片 + 下方标题块」的画册排法。
+  // 原来只有三行居中文字，白纸上孤零零一行字，打开就像草稿。
+  const coverPhoto = photos.find((p) => p.id === project.coverPhotoId) ?? photos[0];
+  const coverImg = coverPhoto ? encoded.get(coverPhoto.id) : null;
   const cover = `
     <section class="page cover">
-      <h1>${escapeHtml(project.name)}</h1>
-      <div class="rule short"></div>
-      <p class="sub">照片故事</p>
-      <p class="meta">${formatDate(new Date())} · 共 ${photos.length} 张</p>
+      ${
+        coverImg
+          ? `<div class="cover-photo"><img src="${coverImg.url}" alt="${escapeHtml(project.name)}"></div>`
+          : ''
+      }
+      <div class="cover-block">
+        <p class="cover-kicker">PHOTO&nbsp;STORY</p>
+        <h1>${escapeHtml(project.name)}</h1>
+        <div class="rule short left"></div>
+        <p class="sub">照片故事</p>
+        <p class="meta">${formatDate(new Date())}　·　共 ${photos.length} 张</p>
+      </div>
     </section>`;
 
   const figMaxH = Math.round(layout.contentH * 0.46);
@@ -499,13 +460,19 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   /* 0.5.7：一张照片和它的全部文字必须落在同一页，不许被拆成两页 */
   .page.figure-page { break-inside: avoid; }
   .page.break { break-before: page; }
-  .cover { display:flex; flex-direction:column; align-items:center; justify-content:center;
-    min-height: ${coverMinH}mm; text-align:center; }
-  .cover h1 { font-size: 30pt; margin: 0; letter-spacing:.04em; }
+  .cover { display:flex; flex-direction:column; justify-content:flex-start;
+    min-height: ${coverMinH}mm; text-align:left; }
+  .cover-photo { width:100%; height:148mm; overflow:hidden; margin:0 0 14mm; }
+  .cover-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .cover-block { display:block; }
+  .cover-kicker { margin:0 0 6mm; font-size:7.5pt; letter-spacing:.32em; color:var(--ink-soft);
+    font-variant-numeric: tabular-nums; }
+  .cover h1 { font-size: 27pt; margin: 0; letter-spacing:.02em; line-height:1.25; font-weight:600; }
   .sub { color:#6b6b6b; font-size:12pt; margin:10px 0 0; }
   .meta { color:#8a8a8a; font-size:10.5pt; margin-top:22px; }
   .rule { width:40mm; height:1px; background:#d8d4cc; margin:12px auto 18px; }
   .rule.short { width:34mm; margin:14px auto; }
+  .rule.left { margin:9mm 0 6mm; }
   .idx { text-align:center; color:#8a8a8a; font-size:10pt; margin:0 0 4px; }
   h2 { text-align:center; font-size:18pt; margin:0; font-weight:600; letter-spacing:.02em; }
   figure { margin: 14px 0 10px; text-align:center; break-inside: avoid; }
@@ -533,14 +500,20 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .chapter-inline .chapter-name { font-size:17pt; }
   .chapter-note { margin:10px 0 0; font-size:11pt; color:#6b6b6b; }
 
-  .ov-title { margin: 0; }
-  .ov-grid { display:grid; gap: 4mm 4mm; margin-top: 4mm; }
+  /* 0.6.4：总览页改成「左对齐一行标头 + 左对齐图注」，跟正文页同一条左边线 */
+  .ov-head { display:flex; align-items:baseline; gap:4mm; margin:0 0 6mm;
+    padding-bottom:3mm; border-bottom:0.3pt solid var(--line); }
+  .ov-kicker { font-size:7.5pt; letter-spacing:.32em; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+  .ov-title { margin: 0; font-size:16pt; text-align:left; letter-spacing:.02em; }
+  .ov-count { margin-left:auto; font-size:8pt; color:var(--ink-soft); }
+  .ov-grid { display:grid; gap: 5mm 4mm; margin-top: 0; align-items:start; }
   .ov-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
   .ov-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
   .ov-cell { margin:0; break-inside: avoid; }
-  .ov-cell img, .ov-ph { width:100%; aspect-ratio: 3 / 2; object-fit: cover; background:#f2efe9; }
-  .ov-cell figcaption { margin-top:2mm; font-size:8.5pt; color:#6b6b6b;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ov-cell img, .ov-ph { width:100%; aspect-ratio: 3 / 2; object-fit: cover; background:#f2efe9; display:block; }
+  .ov-cell figcaption { margin-top:1.8mm; font-size:8.5pt; color:var(--ink-soft); text-align:left;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+  .ov-cell figcaption b { font-weight:400; color:var(--ink); margin-right:2mm; }
 
   .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 0 12px; }
   .chip { border:1px solid #e6e2d9; background:#faf8f4; border-radius:4px;
@@ -613,11 +586,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .idx, .cap, .exif, .score-num, .chapter-no, .gcap, .gscore-num { font-variant-numeric: tabular-nums; }
 
   /* 卷首语 / 后记：只有字的一页 */
-  .prose { break-before: page; }
-  .prose .p-label { margin: 0; font-size: 9.5pt; letter-spacing: .28em; color: var(--ink-soft); }
+  .prose { break-before: page; }  .prose .p-label { margin: 0; font-size: 9.5pt; letter-spacing: .28em; color: var(--ink-soft); }
   .prose h2 { margin: 8mm 0 4mm; font-size: 20pt; text-align: left; }
   .prose .p-rule { width: 26mm; height: 1px; background: var(--line); margin: 0 0 6mm; }
   .prose p { margin: 0 0 4mm; text-indent: 2em; text-align: justify; font-size: 11pt; line-height: 1.9; }
+  ${designCss(env)}
 </style></head><body>
 ${settings.includeCover ? cover : ''}
 ${overview}

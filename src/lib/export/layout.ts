@@ -249,6 +249,10 @@ export function applyLayout(settings: ExportSettings, layout: PageLayout): Expor
   return {
     ...settings,
     grid: normalized,
+    // 0.6.4：在排版台按过一次保存，就是明确要用画布坐标，此时导出才走积木版；
+    // 没进过排版台的项目走新版式（摄影书排版），不再被 0.6.0 测试时留下的 grid 顶掉。
+    useGrid: true,
+    useCanvas: true,
     blocks: order,
     includeStory: set.has('story'),
     includeTechnique: set.has('technique') || set.has('params') || set.has('score') || set.has('advice'),

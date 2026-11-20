@@ -40,6 +40,8 @@ import { type PhotoBlockId, resolveBlocks } from './blocks';
 import { layoutOrder } from './layout';
 import { buildRunStyle } from './fonts';
 import { renderFlatBlock } from './flat-blocks';
+import { bodyFontOption, HEAD_FONT_WORD } from './bookStyle';
+import { figureNumber, pageStyle, tidyReading, type TypeSpec } from './typography';
 
 // 说明：网格页不需要显式分页（见 buildGridPhotoSection 里的注释），
 // 所以这里不引 pageBreakParagraph。
@@ -568,18 +570,40 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
   let ids: PhotoBlockId[] = order.filter((id) => id !== 'image');
   const out: (Paragraph | Table)[] = [];
 
+  // 0.6.4：字号层级不再各写一套，统一从 typography 的令牌取 —— 与 PDF 同源，
+  // 屏幕上是什么样，纸上就是什么样。
+  const style = pageStyle(settings.pageStyle);
+  const bodyFont = bodyFontOption(settings.bodyFont).word;
+  const headFont = HEAD_FONT_WORD;
+  const inkColor = (spec: TypeSpec): string =>
+    spec.color === 'soft'
+      ? toDocxColor(WORD_COLORS.midGray)
+      : spec.color === 'accent'
+        ? '#8A5A3B'
+        : toDocxColor(WORD_COLORS.nearBlack);
+  const run = (spec: TypeSpec, text: string, font = bodyFont) =>
+    new TextRun({
+      font: { ascii: 'Times New Roman', hAnsi: 'Times New Roman', eastAsia: font, hint: 'eastAsia' },
+      size: Math.round(spec.sizePt * 2),
+      bold: spec.weight >= 600,
+      color: inkColor(spec),
+      text,
+    });
+  const mmPt = (mm: number): number => Math.round(mm * 2.8346);
+
   if (params.heading && params.heading.length > 0) out.push(...params.heading);
 
-  const headingCm = params.heading && params.heading.length > 0 ? 5.0 : 0;
+  const headingCm =
+    params.heading && params.heading.length > 0 ? (params.heading.length === 1 ? 1.9 : 5.0) : 0;
   const widthCm = Math.min(contentCm, 14.6);
 
   // 图能占多高，得先算清文字要占多少 —— 否则一张照片连同文字会溢到第二页，
   // 正是用户说的「图和字分到两页」。这里按字数估行数（中文 1em、西文 0.55em）。
   const innerCm = contentCm - 0.5;
-  const need = (text: string | undefined, pt: number, ratio = 1.95): number => {
+  const need = (text: string | undefined, pt: number, ratio = 1.7): number => {
     if (!text || !text.trim()) return 0;
-    // 1.12 是实测校准系数：估出来的高度总比 LibreOffice 实际排出来的矮一点
-    return measureTextCm(text, innerCm, pt, ratio).needCm * 1.12;
+    // 1.06 是实测校准系数：比 LibreOffice 实际排出来的略高一点，宁可少放一块也不溢出
+    return measureTextCm(text, innerCm, pt, ratio).needCm * 1.06;
   };
   const adviceText = [
     ...(analysis.whyGood ?? []),
@@ -620,19 +644,92 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
   ];
   const MIN_IMAGE = 6.2;
   let total = ids.reduce((sum, id) => sum + costOf(id), 0);
+  // 0.6.4：先给照片定目标高度（约 46% 页高），再让文字去挤；文字挤不下才让照片让位。
+  // 之前是「先算文字、剩下多少给照片」，结果文字估得一多，照片就被压成 6cm 的小图。
+  let imageH = Math.min(15, Math.max(MIN_IMAGE, contentHeightCm * 0.6));
+  const budget = (): number => contentHeightCm - total - headingCm - 2.2;
   for (const drop of DROP_ORDER) {
-    if (total + MIN_IMAGE + headingCm + 2.2 <= contentHeightCm) break;
+    if (budget() >= imageH) break;
     if (!ids.includes(drop)) continue;
     ids = ids.filter((id) => id !== drop);
     total -= costOf(drop);
   }
-  const avail = contentHeightCm - total - headingCm - 2.2;
+  while (budget() < imageH && imageH > MIN_IMAGE) {
+    imageH = Math.max(MIN_IMAGE, imageH * 0.88);
+  }
   const imageFrame = {
     widthCm,
-    heightCm: Math.max(MIN_IMAGE, Math.min(15, avail)),
+    heightCm: Math.min(15, imageH),
   };
 
   const render = (id: PhotoBlockId) => {
+    // 0.6.4：这几个块改用画册口径重写（左对齐、固定行距、无满宽分隔线），
+    // 其余块仍走原来的 flat/块渲染器，避免一次性改动太大。
+    if (id === 'title') {
+      const text = (analysis.title || photo.fileName || '').trim();
+      if (!text) return [];
+      return [
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          spacing: {
+            before: 0,
+            after: mmPt(4),
+            line: Math.round(style.pageTitle.linePt * 20),
+            lineRule: LineRuleType.EXACT,
+          },
+          children: [run(style.pageTitle, text, headFont)],
+        }),
+      ];
+    }
+    if (id === 'index') {
+      return [
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          spacing: { before: 0, after: mmPt(1.5), line: Math.round(style.captionNum.linePt * 20), lineRule: LineRuleType.EXACT },
+          children: [run(style.captionNum, figureNumber(index + 1, style), headFont)],
+        }),
+      ];
+    }
+    if (id === 'caption') {
+      const title = (analysis.title || photo.fileName || '').trim();
+      if (!title) return [];
+      // 标题已经印在图片正上方了，图注再印一遍同样的字就是重复 —— 只有标题被让位时才补图注
+      if (ids.includes('title')) return [];
+      // 图注：编号两位补零 + 全角空格 + 标题，不加冒号（跟 PDF 同一口径）
+      return [
+        new Paragraph({
+          alignment: AlignmentType.LEFT,
+          spacing: {
+            before: mmPt(2.5),
+            after: mmPt(1),
+            line: Math.round(style.caption.linePt * 20),
+            lineRule: LineRuleType.EXACT,
+          },
+          children: [
+            run(style.captionNum, `${figureNumber(index + 1, style)}　`, headFont),
+            run(style.caption, title),
+          ],
+        }),
+      ];
+    }
+    if (id === 'story') {
+      const text = tidyReading(analysis.story ?? '');
+      if (!text) return [];
+      return [
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: {
+            before: mmPt(6),
+            after: 0,
+            line: Math.round(style.body.linePt * 20),
+            lineRule: LineRuleType.EXACT,
+          },
+          indent: { firstLine: Math.round(style.body.sizePt * 2 * 20) },
+          children: [run(style.body, text)],
+        }),
+      ];
+    }
+
     const ctx: BlockContext = {
       photo,
       index,
@@ -667,11 +764,16 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
   };
   out.push(...renderBlock('image', imageCtx, {}, false));
 
-  for (const id of ids) {
-    if (id === 'index' || id === 'title') continue;
+  // 0.6.4：图注永远紧跟图片（原来按积木顺序排，图注被挤到「拍摄手法」后面去了）
+  const rest = ids.filter((id) => id !== 'index' && id !== 'title');
+  const capAt = rest.indexOf('caption');
+  if (capAt > 0) {
+    rest.splice(capAt, 1);
+    rest.unshift('caption');
+  }
+  for (const id of rest) {
     out.push(...render(id));
   }
-
   // 有章头时，章头第一段自己带 pageBreakBefore；再塞一个分页段会多出整张白纸
   if (params.pageBreakBefore && (!params.heading || params.heading.length === 0)) {
     const first = out[0];

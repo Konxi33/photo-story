@@ -239,6 +239,13 @@ export interface ExportSettings {
    * 「按排版台的位置印」时写 false——grid 本身仍保留，不会被清掉。
    */
   useGrid?: boolean;
+  /**
+   * 0.6.4：这一次导出要不要按排版台的画布印。
+   * 与 useGrid 分开是因为 0.6.1–0.6.3 期间导出对话框会把 useGrid 写成 true 存进项目，
+   * 老项目升级上来就被它劫持、永远看不到新版式。所以要退出积木版必须由
+   * 用户这一次显式打开（或排版台按保存时写入 true）。
+   */
+  useCanvas?: boolean;
   /** 0.6.3：正文字体（宋体/楷体/仿宋/黑体），PDF 与 Word 共用同一个定义 */
   bodyFont?: 'song' | 'hei' | 'kai' | 'fang';
   /** 0.6.3：纸面底色（纯白/米白/浅灰/墨黑） */
@@ -249,6 +256,16 @@ export interface ExportSettings {
   preface?: string;
   /** 0.6.3：后记，留空就不印 */
   afterword?: string;
+  /**
+   * 0.6.4：版式预设。
+   *   album   —— 极简画册（大图 + 小字，图片居中）
+   *   essay   —— 文艺随笔（图小字多、留白衬底、一点赭色）
+   *   archive —— 技术档案（参数与手法双列小字、图带细边）
+   * 不填等于 album，老项目升级上来版面直接变好看，但内容不变。
+   */
+  pageStyle?: 'album' | 'essay' | 'archive';
+  /** 0.6.4：照片圆角（mm）。画册惯例是 0，商业画册可以给 2–4mm */
+  photoRadius?: number;
 }
 
 /** 相框样式 */

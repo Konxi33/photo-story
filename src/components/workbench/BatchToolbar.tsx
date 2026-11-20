@@ -78,6 +78,9 @@ interface BatchToolbarProps {
   onBatchScore?: () => void;
   /** 0.3.5：一键重生成全部（换模型后用） */
   regenerating?: boolean;
+  /** 0.6.4：重生成进度，让用户看见它真的在动 */
+  regenDone?: number;
+  regenTotal?: number;
   onRegenerateAll?: () => void;
   canRegenerate?: boolean;
   /** 0.4.0：批量删除 */
@@ -118,6 +121,8 @@ export function BatchToolbar({
   scoring = false,
   onBatchScore,
   regenerating = false,
+  regenDone = 0,
+  regenTotal = 0,
   onRegenerateAll,
   canRegenerate = true,
   selectedCount = 0,
@@ -243,7 +248,11 @@ export function BatchToolbar({
               onSelect={() => onRegenerateAll()}
             >
               <RefreshCw className={cn('mr-2 h-3.5 w-3.5', regenerating && 'animate-spin')} />
-              {regenerating ? '重生成中…' : '一键重生成'}
+              {regenerating
+                ? regenTotal > 0
+                  ? `重生成中 ${Math.min(regenDone, regenTotal)}/${regenTotal}`
+                  : '重生成中…'
+                : '一键重生成'}
             </DropdownMenuItem>
           )}
           {onCopyAllText && (

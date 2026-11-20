@@ -322,7 +322,8 @@ export function renderBlock(
       const size = fitIntoFrame(ctx.image, ctx.imageFrame);
       return [
         new Paragraph({
-          alignment: AlignmentType.CENTER,
+          // 0.6.4：照片左对齐，跟章头、标题、正文共用同一条左边线（画册惯例）
+          alignment: AlignmentType.LEFT,
           keepNext: ctx.sticky && !isTail,
           pageBreakBefore: lead.pageBreakBefore || undefined,
           spacing: { before: WORD_BODY.gapAfterImagePt * 20, after: 0, line: 240 },

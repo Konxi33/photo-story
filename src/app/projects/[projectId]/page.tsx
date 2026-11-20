@@ -85,6 +85,8 @@ export default function WorkbenchPage() {
   });
   const [scoring, setScoring] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [regenProgress, setRegenProgress] = useState({ done: 0, total: 0 });
+  const [photosPending, setPhotosPending] = useState(false);
   const [deleteMode, setDeleteMode] = useState<'selected' | 'all' | null>(null);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -178,26 +180,52 @@ export default function WorkbenchPage() {
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
+    setPhotosPending(false);
 
     void (async () => {
+      // 0.6.4：先拿项目本身（一条记录，秒回），照片列表单独拿。
+      // 之前是 Promise.all 一起等：批量重生成正往库里写 20 张大图时，
+      // 读照片会被拖住，页面就停在骨架屏上 —— 用户看到的就是「点项目进不去」。
       try {
-        const [loadedProject, loadedPhotos] = await Promise.all([
-          ProjectRepository.get(projectId),
-          PhotoRepository.listByProject(projectId),
-        ]);
+        const loadedProject = await ProjectRepository.get(projectId);
         if (cancelled) return;
         if (!loadedProject) {
           setStatus('missing');
           return;
         }
         setProject(loadedProject);
-        setPhotos(loadedPhotos);
         setStatus('ready');
       } catch (error) {
         if (cancelled) return;
         setStatus('missing');
         toast.error('加载项目失败', { description: (error as Error).message });
+        return;
       }
+
+      const loadPhotos = async (): Promise<void> => {
+        setPhotosPending(true);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const loadedPhotos = await Promise.race([
+            PhotoRepository.listByProject(projectId),
+            new Promise<null>((resolve) => {
+              timer = setTimeout(() => resolve(null), 8000);
+            }),
+          ]);
+          if (cancelled) return;
+          if (loadedPhotos) {
+            setPhotos(loadedPhotos);
+            setPhotosPending(false);
+          }
+          // 超时就先空着，界面给「重新读取」按钮，绝不让用户对着骨架屏干等
+        } catch (error) {
+          if (cancelled) return;
+          toast.error('读取照片失败', { description: (error as Error).message });
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      };
+      await loadPhotos();
     })();
 
     return () => {
@@ -669,6 +697,8 @@ export default function WorkbenchPage() {
     }
 
     setRegenerating(true);
+    setRegenProgress({ done: 0, total: targets.length });
+    stopRef.current = false;
     try {
       const summary = await runBatchAnalysis({
         photos: targets,
@@ -691,12 +721,23 @@ export default function WorkbenchPage() {
           setPhotos((prev) =>
             prev.map((p) => (p.id === id ? (persisted ?? { ...p, status: 'success' }) : p)),
           );
+          setRegenProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         },
-        onPhotoError: (id, error) => {
-          setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, error } : p)));
+        // 0.6.4：失败也要把 status 写进界面状态。原来的实现只塞了 error，
+        // 于是那几张在屏幕上永远停在「处理中」，而库里早就是 failed —— 重开软件
+        // 才「突然」变成 17 完成 3 失败，用户自然觉得软件在骗他。
+        onPhotoError: (id, error, persisted) => {
+          setPhotos((prev) =>
+            prev.map((p) => (p.id === id ? (persisted ?? { ...p, status: 'failed', error }) : p)),
+          );
+          setRegenProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         },
         shouldStop: () => stopRef.current,
       });
+
+      // 以数据库为准重新拉一遍：批量过程里界面状态是「乐观更新」，
+      // 收尾时对齐真实的库，避免出现「显示 20 全成功、重开变 17/3」。
+      setPhotos(await PhotoRepository.listByProject(projectId).catch(() => photos));
 
       toast.success('重生成完成', {
         description: '成功 ' + summary.succeeded + ' 张 · 失败 ' + summary.failed + ' 张',
@@ -705,6 +746,7 @@ export default function WorkbenchPage() {
       toast.error('重生成失败', { description: (error as Error).message });
     } finally {
       setRegenerating(false);
+      setRegenProgress({ done: 0, total: 0 });
     }
   };
 
@@ -873,6 +915,22 @@ export default function WorkbenchPage() {
           </div>
         )}
 
+        {photosPending && photos.length === 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-line/70 bg-surface-2 px-3 py-2 text-[12px] text-ink-soft">
+            <span>照片还在读（批量任务正在写库时会慢一点）</span>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 font-medium text-ink hover:bg-surface-3"
+              onClick={() => void PhotoRepository.listByProject(projectId).then((list) => {
+                setPhotos(list);
+                setPhotosPending(false);
+              })}
+            >
+              重新读取
+            </button>
+          </div>
+        )}
+
         <div className="mt-3">
           <UploadDropzone
             projectId={projectId}
@@ -900,6 +958,8 @@ export default function WorkbenchPage() {
           scoring={scoring}
           onBatchScore={() => void handleBatchScore()}
           regenerating={regenerating}
+          regenDone={regenProgress.done}
+          regenTotal={regenProgress.total}
           onRegenerateAll={() => void handleRegenerateAll()}
           canRegenerate={photos.length > 0}
           selectedCount={photos.filter((p) => p.selected).length}

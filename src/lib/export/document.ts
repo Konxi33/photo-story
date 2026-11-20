@@ -178,6 +178,7 @@ export function buildDocument(params: BuildDocumentParams): Document {
         title: entry.chapter.title,
         note: entry.chapter.note,
         contentWidthCm: exportContentCm(settings),
+        compact: true,
       });
       hasPreviousContent = true;
 
