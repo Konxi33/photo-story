@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ArrowUpRight,
@@ -109,6 +110,16 @@ export default function ProjectsPage() {
       setUsage(await getStorageUsage().catch(() => null));
     })();
   }, [refresh]);
+
+  // 0.6.4：批量识别时，本机同一个源上的长请求会把浏览器的连接占满，
+  // 这时点项目卡要等好几秒到几十秒才跳（用户感受就是「点项目进不去」）。
+  // 列表出来后就把每个项目页的 RSC 载荷预先取回来，点进去直接用缓存，不再等网络。
+  useEffect(() => {
+    if (!projects || projects.length === 0) return;
+    projects.slice(0, 24).forEach((project) => {
+      router.prefetch(ROUTES.project(project.id));
+    });
+  }, [projects, router]);
 
   const handleCreate = async (): Promise<void> => {
     const trimmed = name.trim();
@@ -485,10 +496,16 @@ function ProjectCard({
   const isComplete = project.successCount >= project.photoCount && project.photoCount > 0;
   return (
     <article
-      className="ps-enter group relative cursor-pointer overflow-hidden rounded-[14px] border border-line/60 bg-surface transition-[transform,box-shadow,border-color] duration-[380ms] ease-[var(--ease-out)] hover:-translate-y-1 hover:border-ink/15 hover:shadow-[var(--elev-hover)]"
+      className="ps-enter group relative overflow-hidden rounded-[14px] border border-line/60 bg-surface transition-[transform,box-shadow,border-color] duration-[380ms] ease-[var(--ease-out)] hover:-translate-y-1 hover:border-ink/15 hover:shadow-[var(--elev-hover)]"
       style={{ ['--ps-delay' as string]: `${120 + index * 55}ms` }}
-      onClick={onOpen}
     >
+      {/* 0.6.4 修：整张卡改成真正的链接。重生成进行中时 React 的 onClick 偶发丢失，
+          以前靠 onClick 跳转就会「点项目进不去」；链接由浏览器兜底，点了就一定能进。 */}
+      <Link
+        href={ROUTES.project(project.id)}
+        aria-label={`打开项目 ${project.name}`}
+        className="block cursor-pointer rounded-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/40"
+      >
       <div className="relative aspect-16/10 overflow-hidden bg-surface-2">
         <ProjectCover coverPhotoId={project.coverPhotoId} fallback={project.name} />
 
@@ -518,45 +535,6 @@ function ProjectCard({
             />
           </div>
         )}
-
-        <div className="absolute top-2.5 right-2.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`${project.name} 的更多操作`}
-                className="h-7 w-7 rounded-md bg-black/35 text-white opacity-0 backdrop-blur-sm transition-all duration-300 group-hover:opacity-100 hover:bg-black/55"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem onClick={onOpen}>打开</DropdownMenuItem>
-              <DropdownMenuItem onClick={onRename}>
-                <Pencil className="mr-2 h-3.5 w-3.5" />
-                重命名
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onBackup}>
-                <Download className="mr-2 h-3.5 w-3.5" />
-                备份
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onPackage}>
-                <Package className="mr-2 h-3.5 w-3.5" />
-                打包为 .zpgs
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={onDelete}
-              >
-                <Trash2 className="mr-2 h-3.5 w-3.5" />
-                删除
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
 
         <span className="pointer-events-none absolute top-2.5 left-2.5 flex h-6 -translate-y-1 items-center gap-1 rounded-md bg-black/40 px-2 text-[10.5px] text-white opacity-0 backdrop-blur-sm transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
           打开
@@ -592,6 +570,42 @@ function ProjectCard({
           {formatDate(project.updatedAt)}
         </span>
         <ArrowUpRight className="h-3.5 w-3.5 text-ink-faint opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100" />
+      </div>
+      </Link>
+
+      <div className="absolute top-2.5 right-2.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`${project.name} 的更多操作`}
+              className="h-7 w-7 rounded-md bg-black/35 text-white opacity-0 backdrop-blur-sm transition-all duration-300 group-hover:opacity-100 hover:bg-black/55"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onOpen}>打开</DropdownMenuItem>
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="mr-2 h-3.5 w-3.5" />
+              重命名
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onBackup}>
+              <Download className="mr-2 h-3.5 w-3.5" />
+              备份
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onPackage}>
+              <Package className="mr-2 h-3.5 w-3.5" />
+              打包为 .zpgs
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </article>
   );

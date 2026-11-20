@@ -56,6 +56,9 @@ import {
   DEFAULT_TEMPERATURE,
   DEFAULT_TIMEOUT_MS,
   MAX_CONCURRENCY,
+  MAX_TIMEOUT_MS,
+  MIN_CONCURRENCY,
+  MIN_TIMEOUT_MS,
   STORAGE_KEY_APP_SETTINGS,
 } from '@/config/app';
 import {
@@ -239,7 +242,8 @@ export default function SettingsPage() {
             null,
           )) ?? null;
         const s = { ...DEFAULT_APP_SETTINGS, ...(saved ?? {}) } as AppSettings;
-        setConcurrency(s.concurrency);
+        // 0.6.4：旧版本存过 50，现在上限是 4（要留连接给界面），显示时直接压回来
+        setConcurrency(Math.min(MAX_CONCURRENCY, Math.max(MIN_CONCURRENCY, s.concurrency)));
         setTimeoutSec(Math.round(s.timeoutMs / 1000));
         setMaxRetries(s.maxRetries);
         setAiEdge(s.aiImageMaxEdge ?? 1024);
@@ -787,17 +791,28 @@ export default function SettingsPage() {
 
         {/* 生成参数 */}
         <Section id="gen" title="生成参数" desc="影响批量识别的速度与稳定性">
+          <p className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[11.5px] text-ink-soft">
+            并发数上限是 {MAX_CONCURRENCY}：识别请求都打在本机服务上，压太满会把界面自己要用的连接抢光，页面就点不动了。
+          </p>
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="并发数">
               <Select value={String(concurrency)} onValueChange={(v) => setConcurrency(Number(v))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {[1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 50].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                  {Array.from({ length: MAX_CONCURRENCY }, (_, i) => i + MIN_CONCURRENCY).map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
             <Field label="单张超时（秒）">
-              <Input type="number" min={30} max={120} value={timeoutSec} onChange={(e) => setTimeoutSec(Number(e.target.value))} />
+              <Input
+                type="number"
+                min={MIN_TIMEOUT_MS / 1000}
+                max={MAX_TIMEOUT_MS / 1000}
+                value={timeoutSec}
+                onChange={(e) => setTimeoutSec(Number(e.target.value))}
+              />
             </Field>
             <Field label="最大重试">
               <Select value={String(maxRetries)} onValueChange={(v) => setMaxRetries(Number(v))}>

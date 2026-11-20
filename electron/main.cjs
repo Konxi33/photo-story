@@ -200,6 +200,63 @@ function createWindow() {
     setTimeout(nudgeRepaint, 120);
   });
   mainWindow.setMenuBarVisibility(false);
+
+  // 0.6.4 诊断：渲染进程卡死/崩溃时写日志，用来定位「重生成后点不进项目」
+  const runtimeLog = path.join(app.getPath('userData'), 'logs');
+  const writeRuntimeLog = (event, detail) => {
+    try {
+      fs.mkdirSync(runtimeLog, { recursive: true });
+      fs.appendFileSync(
+        path.join(runtimeLog, 'renderer.log'),
+        `${new Date().toISOString()} ${event} ${detail ? JSON.stringify(detail) : ''}\n`,
+        'utf8',
+      );
+    } catch {
+      /* 日志失败不影响主流程 */
+    }
+  };
+  writeRuntimeLog('boot', { version: app.getVersion() });
+  mainWindow.on('unresponsive', () => writeRuntimeLog('unresponsive'));
+  mainWindow.on('responsive', () => writeRuntimeLog('responsive'));
+  mainWindow.webContents.on('render-process-gone', (_e, d) =>
+    writeRuntimeLog('render-process-gone', { reason: d.reason, exitCode: d.exitCode }),
+  );
+  mainWindow.webContents.on('preload-error', (_e, p, err) =>
+    writeRuntimeLog('preload-error', { p, message: err.message }),
+  );
+  app.on('child-process-gone', (_e, d) =>
+    writeRuntimeLog('child-process-gone', { type: d.type, reason: d.reason }),
+  );
+
+  // 每 5 秒探一次渲染进程能不能执行 JS：卡死时日志里会连续出现 eval-timeout
+  let lastVerdict = 'ok';
+  setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const started = Date.now();
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      if (lastVerdict !== 'timeout') {
+        lastVerdict = 'timeout';
+        writeRuntimeLog('eval-timeout', { ms: Date.now() - started });
+      }
+    }, 4000);
+    mainWindow.webContents
+      .executeJavaScript('1')
+      .then(() => {
+        settled = true;
+        clearTimeout(timer);
+        if (lastVerdict === 'timeout') {
+          lastVerdict = 'ok';
+          writeRuntimeLog('eval-ok-again');
+        }
+      })
+      .catch(() => {
+        settled = true;
+        clearTimeout(timer);
+      });
+  }, 5000);
+
   mainWindow.loadURL(APP_URL);
 
   // 换显示器 / 改缩放比例后，窗口可能又跑到屏幕外

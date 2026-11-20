@@ -2,6 +2,7 @@
 // 浏览器端批量队列：并发池 + 退避重试 + 可中断 + 逐张落库。
 
 import {
+  MAX_CONCURRENCY,
   PHOTO_ERROR_LABELS,
   PHOTO_ERROR_RETRYABLE,
   RETRY_BASE_DELAY_MS,
@@ -191,7 +192,10 @@ export async function runBatchAnalysis(options: BatchAnalyzeOptions): Promise<Ba
     }
   };
 
-  const workerCount = Math.max(1, Math.min(concurrency, total));
+  // 0.6.4：并发不能超过 MAX_CONCURRENCY——拉满会占光浏览器对同一域名的 6 个连接，
+  // 界面自己要用的请求（客户端导航的 RSC 载荷）就排不上队，表现为「点项目进不去」。
+  // 旧设置里存着的 50 也会在这里被压回来。
+  const workerCount = Math.max(1, Math.min(concurrency, MAX_CONCURRENCY, total));
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   const finishedAt = Date.now();

@@ -217,6 +217,7 @@ export function BatchToolbar({
             variant="ghost"
             className="h-8 rounded-full px-2.5 text-ink-mid"
             title="更多操作"
+            aria-label="更多操作"
           >
             <MoreHorizontal className="h-4 w-4" />
             {selectedCount > 0 && (

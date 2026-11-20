@@ -7,16 +7,23 @@ import type { AppSettings, ExportSettings, PhotoErrorCode } from '@/types/domain
 export const APP_NAME = '照片故事' as const;
 export const APP_NAME_EN = 'Photo Story' as const;
 export const APP_DESCRIPTION = '把照片，写成一册随笔' as const;
-export const APP_VERSION = '0.6.4' as const;
+export const APP_VERSION = '0.6.5' as const;
 export const EXPORT_FILENAME_PREFIX = '照片故事' as const;
 
 export const DEFAULT_CONCURRENCY = 3 as const;
 export const MIN_CONCURRENCY = 1 as const;
-export const MAX_CONCURRENCY = 50 as const;
+// 0.6.4：上限从 50 收到 4。所有识别请求都打在本机同一个 Next 服务上，
+// 浏览器对同一个域名只开 6 个 HTTP/1.1 连接；并发拉满时，页面自己要用的
+// 连接（客户端导航的 RSC 载荷、静态资源）排不上队，就会出现「点项目进不去」
+// 「界面像卡死」——实测并发 20 张时拿一次 RSC 载荷要 41 秒。
+// 留 2 个连接给界面，识别速度慢一点，但点得动。
+export const MAX_CONCURRENCY = 4 as const;
 
-export const DEFAULT_TIMEOUT_MS = 60_000 as const;
+// 0.6.4：实测单张识别（vision + 结构化长文）在 DeepSeek 上要 30–55 秒，
+// 原来 60 秒超时太紧，正常的慢请求会被当成「网络中断」记进失败。
+export const DEFAULT_TIMEOUT_MS = 90_000 as const;
 export const MIN_TIMEOUT_MS = 30_000 as const;
-export const MAX_TIMEOUT_MS = 120_000 as const;
+export const MAX_TIMEOUT_MS = 180_000 as const;
 
 export const DEFAULT_MAX_RETRIES = 2 as const;
 export const MAX_RETRIES = 3 as const;

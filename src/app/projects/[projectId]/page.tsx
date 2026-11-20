@@ -38,6 +38,7 @@ import { analyzePhotoLocally, runBatchAnalysis } from '@/lib/ai';
 import { pageHint } from '@/lib/export/blocks';
 import { scorePhoto } from '@/lib/score/dispatch';
 import { AssetRepository, KvRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
+import { recallProject, rememberProject } from '@/lib/db/session-cache';
 import type {
   AiConfigPublic,
   AppSettings,
@@ -66,8 +67,8 @@ export default function WorkbenchPage() {
   const router = useRouter();
   const projectId = params.projectId;
 
-  const [status, setStatus] = useState<LoadStatus>('loading');
-  const [project, setProject] = useState<Project | null>(null);
+  const [status, setStatus] = useState<LoadStatus>(() => (recallProject(projectId) ? 'ready' : 'loading'));
+  const [project, setProject] = useState<Project | null>(() => recallProject(projectId));
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [filter, setFilter] = useState<PhotoFilter>('all');
   const [hasKey, setHasKey] = useState(false);
@@ -179,8 +180,17 @@ export default function WorkbenchPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setStatus('loading');
-    setPhotosPending(false);
+    // 有缓存就先画出来（标题、操作栏立刻可见），再去后台刷新真实数据
+    const cached = recallProject(projectId);
+    if (cached) {
+      setProject(cached);
+      setStatus('ready');
+      // 照片列表还没到手：先亮出「照片还在读」，别让人以为页面是空的
+      setPhotosPending(true);
+    } else {
+      setStatus('loading');
+      setPhotosPending(false);
+    }
 
     void (async () => {
       // 0.6.4：先拿项目本身（一条记录，秒回），照片列表单独拿。
@@ -190,13 +200,16 @@ export default function WorkbenchPage() {
         const loadedProject = await ProjectRepository.get(projectId);
         if (cancelled) return;
         if (!loadedProject) {
-          setStatus('missing');
+          if (!cached) setStatus('missing');
           return;
         }
         setProject(loadedProject);
+        rememberProject(loadedProject);
         setStatus('ready');
       } catch (error) {
         if (cancelled) return;
+        // 读失败但有缓存时不要把已经画出来的页面又打回骨架屏
+        if (cached) return;
         setStatus('missing');
         toast.error('加载项目失败', { description: (error as Error).message });
         return;
@@ -480,6 +493,7 @@ export default function WorkbenchPage() {
     try {
       const updated = await ProjectRepository.rename(projectId, name);
       setProject(updated);
+      rememberProject(updated);
     } catch (error) {
       toast.error('重命名失败', { description: (error as Error).message });
     }
@@ -854,6 +868,7 @@ export default function WorkbenchPage() {
     try {
       const updated = await ProjectRepository.update(projectId, { coverPhotoId: id });
       setProject(updated);
+      rememberProject(updated);
       toast.success('已设为封面');
     } catch (error) {
       toast.error('设置封面失败', { description: (error as Error).message });
