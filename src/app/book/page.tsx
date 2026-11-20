@@ -591,7 +591,7 @@ function ChapterCard({
           {...attributes}
           {...listeners}
           aria-label={`拖动「${chapter.title || '未命名'}」调整顺序`}
-          className="cursor-grab touch-none text-ink-faint/60 transition-colors hover:text-ink active:cursor-grabbing"
+          className="-m-1 cursor-grab touch-none rounded p-1 text-ink-faint/60 transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
         >
           <GripVertical className="h-4 w-4" />
         </button>
@@ -658,7 +658,7 @@ function ChapterCard({
                 type="button"
                 onClick={() => onRemovePhoto(id)}
                 aria-label="从本章移除"
-                className="absolute top-0.5 right-0.5 rounded-full bg-black/55 p-0.5 text-white/85 opacity-0 transition-opacity duration-150 group-hover/thumb:opacity-100 hover:bg-black/75"
+                className="absolute top-1 right-1 rounded-full bg-black/55 p-1 text-white/85 opacity-0 transition-opacity duration-150 group-hover/thumb:opacity-100 hover:bg-black/75"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -691,7 +691,7 @@ function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        'rounded-md p-1 text-ink-faint transition-colors duration-150',
+        'rounded-md p-1.5 text-ink-faint transition-colors duration-150',
         'hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30',
         danger && 'hover:bg-destructive/10 hover:text-destructive',
       )}

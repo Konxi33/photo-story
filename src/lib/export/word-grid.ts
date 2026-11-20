@@ -28,13 +28,19 @@ import {
   VerticalAlign,
   WidthType,
   type ITableCellOptions,
+  LineRuleType,
+  PageBreak,
 } from 'docx';
 
 import { WORD_COLORS, WORD_FONTS, toDocxColor } from '@/config/wordLayout';
 import type { ExportSettings, Photo, PhotoAnalysis, Technique } from '@/types/domain';
 
 import { type BlockContext, buildPhotoSection, renderBlock } from './body';
+import { type PhotoBlockId, resolveBlocks } from './blocks';
+import { layoutOrder } from './layout';
 import { buildRunStyle } from './fonts';
+import { renderFlatBlock } from './flat-blocks';
+
 // 说明：网格页不需要显式分页（见 buildGridPhotoSection 里的注释），
 // 所以这里不引 pageBreakParagraph。
 import { type EncodedImage } from './image-encode';
@@ -265,6 +271,15 @@ function cellContent(plan: ItemPlan, params: GridSectionParams): (Paragraph | Ta
     sticky: false,
   };
 
+  // 0.6.3：评分/建议/参数一律压成段落，格子内不再嵌表（Word 里嵌套表会把行高算错）
+  const flat = renderFlatBlock({
+    id,
+    analysis: trimmed,
+    widthCm: plan.widthCm,
+    index: params.index,
+  });
+  if (flat && flat.length > 0) return flat;
+
   const out = renderBlock(id, ctx, {}, true);
   if (out.length === 0) {
     return [new Paragraph({ spacing: { before: 0, after: 0, line: 20, lineRule: 'exact' }, children: [] })];
@@ -390,3 +405,286 @@ export function buildGridPhotoSection(params: GridSectionParams): (Paragraph | T
  * document.ts 用它做兼容，避免两套逻辑分叉。
  */
 export { buildPhotoSection };
+
+/**
+ * 0.6.3：Word 的「两栏流式」页。
+ *
+ * 为什么另起一条路：12×24 精确网格在 Chromium（PDF）里表现很好，但 Word 的表格
+ * 行高有个脾气 —— HeightRule.EXACT 只影响行的「名义高度」，单元格里的文字或嵌套
+ * 小表一高，整行照样长高，于是下一行的内容被推下去，视觉上就是「图片和表格跑位、
+ * 字压在图片上」。
+ *
+ * 两栏流式没有这个问题：左栏（序号/标题/大图/图注/正文）与右栏（评分/建议/手法/
+ * 参数/相机/类别/标签/氛围/无障碍）各是一个单元格，内容在里面自然往下排，
+ * 谁高就谁高，绝不会互相压住，也不会跑出纸面。
+ */
+export interface FlowSectionParams {
+  photo: Photo;
+  index: number;
+  image: EncodedImage | null;
+  settings: ExportSettings;
+  /** 版心宽（cm） */
+  contentCm: number;
+  /** 紧凑章头的段落：要和这一页的第一张同页 */
+  heading?: (Paragraph | Table)[];
+  /** 这一页是否另起一页 */
+  pageBreakBefore?: boolean;
+}
+
+const FLOW_LEFT: PhotoBlockId[] = ['index', 'title', 'image', 'caption', 'story'];
+const FLOW_RIGHT: PhotoBlockId[] = [
+  'score',
+  'advice',
+  'technique',
+  'params',
+  'exif',
+  'category',
+  'tags',
+  'mood',
+  'alt',
+];
+
+export function buildFlowPhotoSection(params: FlowSectionParams): (Paragraph | Table)[] {
+  const { photo, index, image, settings, contentCm } = params;
+  const ids = resolveBlocks(settings);
+  if (!ids.includes('image')) return [];
+
+  const leftIds = FLOW_LEFT.filter((id) => ids.includes(id));
+  const rightIds = FLOW_RIGHT.filter((id) => ids.includes(id));
+
+  // 左右 8:4 —— 画册里最耐看的分栏，右栏只放「小字信息」
+  const totalTwips = Math.round(contentCm * 567);
+  const leftTwips = Math.round(totalTwips * 0.665);
+  const rightTwips = totalTwips - leftTwips;
+  const leftCm = (leftTwips / 567) * 0.96;
+  const rightCm = (rightTwips / 567) * 0.96;
+
+  // 板块清单本身决定印不印，旧布尔开关一律视为打开，
+  // 免得出现「用户把某块拖上纸、但内容被开关吞掉」。
+  const openSettings: ExportSettings = {
+    ...settings,
+    includeStory: true,
+    includeTechnique: true,
+    includeTags: true,
+    includeMood: true,
+    includeAlt: true,
+    includeScoreDetail: true,
+    captionUnderImage: true,
+  };
+
+  const mkCtx = (widthCm: number, imageRowsCm: number): BlockContext => ({
+    photo,
+    index,
+    image,
+    settings: openSettings,
+    analysis: photo.status === 'success' ? photo.analysis : undefined,
+    contentCm: widthCm,
+    imageRoomCm: imageRowsCm,
+    imageFrame: { widthCm, heightCm: imageRowsCm },
+    sticky: false,
+  });
+
+  const render = (
+    list: PhotoBlockId[],
+    widthCm: number,
+    imageRowsCm: number,
+    lead: boolean,
+  ): (Paragraph | Table)[] => {
+    const ctx = mkCtx(widthCm, imageRowsCm);
+    const out: (Paragraph | Table)[] = [];
+    list.forEach((id, i) => {
+      const isFirst = i === 0;
+      const isTail = i === list.length - 1;
+      const flat = renderFlatBlock({ id, analysis: ctx.analysis, widthCm, index });
+      if (flat && flat.length > 0) {
+        out.push(...flat);
+        return;
+      }
+      out.push(...renderBlock(id, ctx, { pageBreakBefore: lead && isFirst }, isTail && !lead));
+    });
+    return out;
+  };
+
+  // 图框高度按「版心高 - 下方文字」估算：留 11cm 给正文和图注
+  const imageHeightCm = Math.max(7, Math.min(13, 25.2 - 11.5));
+
+  const leftCell = new TableCell({
+    width: { size: leftTwips, type: WidthType.DXA },
+    margins: { top: 0, bottom: 0, left: 0, right: 220 },
+    children: render(leftIds, leftCm, imageHeightCm, Boolean(params.pageBreakBefore)),
+  });
+  const rightCell = new TableCell({
+    width: { size: rightTwips, type: WidthType.DXA },
+    margins: { top: 0, bottom: 0, left: 200, right: 0 },
+    children:
+      rightIds.length > 0
+        ? render(rightIds, rightCm, imageHeightCm, false)
+        : [new Paragraph({ text: '' })],
+  });
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    borders: NO_BORDERS,
+    rows: [new TableRow({ cantSplit: true, children: [leftCell, rightCell] })],
+  });
+
+  const out: (Paragraph | Table)[] = [];
+  if (params.heading && params.heading.length > 0) out.push(...params.heading);
+  out.push(table);
+  return out;
+}
+
+export interface SingleFlowParams {
+  photo: Photo;
+  index: number;
+  image: EncodedImage;
+  settings: ExportSettings;
+  contentCm: number;
+  contentHeightCm: number;
+  heading?: (Paragraph | Table)[];
+  pageBreakBefore?: boolean;
+}
+
+/**
+ * 0.6.3：Word 的「单栏流式」版面 —— 纯段落，零嵌套表、零固定行高。
+ *
+ * 为什么最终选了它：Word/LibreOffice 里 `HeightRule.EXACT` 不裁内容，
+ * 单元格里再嵌小表（评分/建议/参数）会让整行失真，渲染出来就是字压字；
+ * 而 12×24 网格在 A4 上为了塞下 14 个板块，行高被压到 1cm 上下，
+ * 中文正文一换行就顶出去。单栏流式没有这些问题：段落自然往下排，
+ * 排满一页就翻页，永远不会重叠、不会裁切。
+ *
+ * 用户自定义的「顺序」仍然被尊重（用 layoutOrder 决定板块先后），
+ * 只是「格子位置」在 Word 里让位给可读性；PDF 走的是排版台的绝对坐标。
+ */
+export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | Table)[] {
+  const { photo, index, image, settings, contentCm, contentHeightCm } = params;
+  const analysis = photo.analysis;
+  if (!analysis) return [];
+
+  const openSettings = { ...settings, useGrid: false } as ExportSettings;
+  const order = layoutOrder(resolveLayout(settings));
+  let ids: PhotoBlockId[] = order.filter((id) => id !== 'image');
+  const out: (Paragraph | Table)[] = [];
+
+  if (params.heading && params.heading.length > 0) out.push(...params.heading);
+
+  const headingCm = params.heading && params.heading.length > 0 ? 5.0 : 0;
+  const widthCm = Math.min(contentCm, 14.6);
+
+  // 图能占多高，得先算清文字要占多少 —— 否则一张照片连同文字会溢到第二页，
+  // 正是用户说的「图和字分到两页」。这里按字数估行数（中文 1em、西文 0.55em）。
+  const innerCm = contentCm - 0.5;
+  const need = (text: string | undefined, pt: number, ratio = 1.95): number => {
+    if (!text || !text.trim()) return 0;
+    // 1.12 是实测校准系数：估出来的高度总比 LibreOffice 实际排出来的矮一点
+    return measureTextCm(text, innerCm, pt, ratio).needCm * 1.12;
+  };
+  const adviceText = [
+    ...(analysis.whyGood ?? []),
+    ...(analysis.improve ?? []),
+    ...(analysis.imitate ?? []),
+  ].join(' ');
+  const techniqueText = [
+    analysis.technique?.composition,
+    analysis.technique?.lighting,
+    analysis.technique?.color,
+    analysis.technique?.lens,
+    analysis.technique?.post,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const costOf = (id: PhotoBlockId): number => {
+    if (id === 'story') return need(analysis.story, 10.5) + 0.7;
+    if (id === 'score') return 2.4;
+    if (id === 'advice') return adviceText.trim() ? need(adviceText, 9.5) + 2.4 : 0;
+    if (id === 'technique') return techniqueText.trim() ? need(techniqueText, 9.5) + 1.2 : 0;
+    if (id === 'params') return 0.95;
+    if (id === 'exif') return 0.95;
+    if (id === 'title') return 1.7;
+    if (id === 'index') return 0.95;
+    return 0.9;
+  };
+  // 一页装不下时按优先级让位：先砍「解读」类，正文与图永远保留
+  // alt/mood/category 与图注、标签重复，最先让位；接着是解读类；正文和拍摄手法永远保留
+  const DROP_ORDER: PhotoBlockId[] = [
+    'alt',
+    'mood',
+    'category',
+    'advice',
+    'params',
+    'exif',
+    'tags',
+    'score',
+  ];
+  const MIN_IMAGE = 6.2;
+  let total = ids.reduce((sum, id) => sum + costOf(id), 0);
+  for (const drop of DROP_ORDER) {
+    if (total + MIN_IMAGE + headingCm + 2.2 <= contentHeightCm) break;
+    if (!ids.includes(drop)) continue;
+    ids = ids.filter((id) => id !== drop);
+    total -= costOf(drop);
+  }
+  const avail = contentHeightCm - total - headingCm - 2.2;
+  const imageFrame = {
+    widthCm,
+    heightCm: Math.max(MIN_IMAGE, Math.min(15, avail)),
+  };
+
+  const render = (id: PhotoBlockId) => {
+    const ctx: BlockContext = {
+      photo,
+      index,
+      image,
+      settings: openSettings,
+      analysis,
+      contentCm,
+      imageRoomCm: imageFrame.heightCm,
+      imageFrame,
+      sticky: false,
+    };
+    const flat = renderFlatBlock({ id, analysis, widthCm: contentCm, index });
+    if (flat && flat.length > 0) return flat;
+    return renderBlock(id, ctx, {}, true);
+  };
+
+  // 标题组（序号 + 标题）紧随其后；在没有标题的版式里也别把图顶到最上面
+  const beforeImage = ids.filter((id) => id === 'index' || id === 'title');
+  for (const id of beforeImage) out.push(...render(id));
+
+  // 图片始终排在标题之后、正文之前
+  const imageCtx: BlockContext = {
+    photo,
+    index,
+    image,
+    settings: openSettings,
+    analysis,
+    contentCm,
+    imageRoomCm: imageFrame.heightCm,
+    imageFrame,
+    sticky: false,
+  };
+  out.push(...renderBlock('image', imageCtx, {}, false));
+
+  for (const id of ids) {
+    if (id === 'index' || id === 'title') continue;
+    out.push(...render(id));
+  }
+
+  // 有章头时，章头第一段自己带 pageBreakBefore；再塞一个分页段会多出整张白纸
+  if (params.pageBreakBefore && (!params.heading || params.heading.length === 0)) {
+    const first = out[0];
+    if (first instanceof Paragraph) {
+      // 段落只读，改成在 heading 之外再塞一个 1pt 分页段
+      out.unshift(
+        new Paragraph({
+          spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT },
+          children: [new PageBreak()],
+        }),
+      );
+    }
+  }
+
+  return out;
+}

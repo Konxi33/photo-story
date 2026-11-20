@@ -734,7 +734,7 @@ export default function ScorePage() {
                       <button
                         type="button"
                         onClick={() => setPreviewIndex(index)}
-                        className="text-[11px] text-ink-faint transition-colors duration-200 hover:text-ink"
+                        className="-my-1 rounded-md px-1.5 py-1.5 text-[11px] text-ink-faint transition-colors duration-200 hover:bg-surface-2 hover:text-ink"
                       >
                         查看详情
                       </button>
@@ -742,7 +742,7 @@ export default function ScorePage() {
                         type="button"
                         onClick={() => void applyScore(item.photo.id)}
                         disabled={busy}
-                        className="text-[11px] text-ink-faint transition-colors duration-200 hover:text-ink disabled:opacity-50"
+                        className="-my-1 rounded-md px-1.5 py-1.5 text-[11px] text-ink-faint transition-colors duration-200 hover:bg-surface-2 hover:text-ink disabled:opacity-50"
                       >
                         {busy ? '评分中…' : '重新评分'}
                       </button>

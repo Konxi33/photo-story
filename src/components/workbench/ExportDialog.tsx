@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Segmented } from '@/components/ui/segmented';
@@ -67,6 +68,12 @@ import {
   resolveBlocks,
   type PhotoBlockId,
 } from '@/lib/export/blocks';
+import {
+  BODY_FONT_OPTIONS,
+  PAPER_TINY_OPTIONS,
+  type BookBodyFont,
+  type PaperTintId,
+} from '@/lib/export/bookStyle';
 import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
 import { planLayoutPage, type PageLayout } from '@/lib/export/layout';
 import Link from 'next/link';
@@ -136,6 +143,13 @@ export function ExportDialog({
   // 0.5.5：图注写什么 —— 摄影集默认只写编号 + 标题，参数进书末技术附录
   const [captionStyle, setCaptionStyle] = useState<'title' | 'param' | 'both'>('title');
   const [includeScoreDetail, setIncludeScoreDetail] = useState(false);
+
+  // 0.6.3：整本书的「字」与「纸」——字体、纸色、卷首语、后记
+  const [bodyFont, setBodyFont] = useState<BookBodyFont>('song');
+  const [paper, setPaper] = useState<PaperTintId>('white');
+  const [prefaceTitle, setPrefaceTitle] = useState('');
+  const [preface, setPreface] = useState('');
+  const [afterword, setAfterword] = useState('');
 
   // 0.5.7：这一页印哪些板块、按什么顺序 —— 用户拖出来的就是它
   const [blocks, setBlocks] = useState<PhotoBlockId[]>(DEFAULT_BLOCKS);
@@ -236,6 +250,11 @@ export function ExportDialog({
     setGutter(String(s.gutter ?? 0) as '0' | '0.5' | '1');
     setCaptionUnderImage(s.captionUnderImage !== false);
     setCaptionStyle(s.captionStyle ?? 'title');
+    setBodyFont((s.bodyFont as BookBodyFont) ?? 'song');
+    setPaper((s.paper as PaperTintId) ?? 'white');
+    setPrefaceTitle(s.prefaceTitle ?? '');
+    setPreface(s.preface ?? '');
+    setAfterword(s.afterword ?? '');
     setIncludeScoreDetail(s.includeScoreDetail === true);
     setBlocks(resolveBlocks(s));
     setTemplateId(s.templateId ?? '');
@@ -855,6 +874,62 @@ export function ExportDialog({
                   </SelectContent>
                 </Select>
               </SettingRow>
+
+              {/* 0.6.3：字与纸 —— 画册像不像一本书，八成看这两项 */}
+              <SettingRow label="正文字体">
+                <Select value={bodyFont} onValueChange={(v) => setBodyFont(v as BookBodyFont)}>
+                  <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {BODY_FONT_OPTIONS.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SettingRow>
+              <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
+                {BODY_FONT_OPTIONS.find((f) => f.id === bodyFont)?.hint}
+              </p>
+
+              <SettingRow label="纸面底色">
+                <Select value={paper} onValueChange={(v) => setPaper(v as PaperTintId)}>
+                  <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PAPER_TINY_OPTIONS.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SettingRow>
+              <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
+                {PAPER_TINY_OPTIONS.find((p) => p.id === paper)?.hint}
+              </p>
+
+              <div className="mt-2 grid gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-medium text-ink">卷首语</span>
+                  <Input
+                    value={prefaceTitle}
+                    onChange={(e) => setPrefaceTitle(e.target.value)}
+                    placeholder="标题（默认「写在前面」）"
+                    className="h-8 flex-1"
+                    aria-label="卷首语标题"
+                  />
+                </div>
+                <Textarea
+                  value={preface}
+                  onChange={(e) => setPreface(e.target.value)}
+                  placeholder="写一段“为什么拍这些照片”，导出时会单独占一页放在图版之前。留空就不印。"
+                  className="min-h-[76px] text-[13px]"
+                  aria-label="卷首语正文"
+                />
+                <Textarea
+                  value={afterword}
+                  onChange={(e) => setAfterword(e.target.value)}
+                  placeholder="后记（可留空）。导出时排在最后一套图版之后。"
+                  className="min-h-[56px] text-[13px]"
+                  aria-label="后记"
+                />
+              </div>
               <SettingRow label="排版密度">
                 <Select value={layout} onValueChange={(v) => setLayout(v as LayoutMode)}>
                   <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>

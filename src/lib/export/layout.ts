@@ -152,14 +152,86 @@ export function legacyLayout(settings: ExportSettings): PageLayout {
 
 /** 取这一页实际用的排版 */
 export function resolveLayout(settings: ExportSettings): PageLayout {
-  // 0.6.1：对话框里关掉「按排版台的位置印」时，不是回到老的流式排版，
-  // 而是把当前板块按顺序折成竖排网格 —— 流式排版保证不了「图和字不跨页」。
-  if (settings.useGrid === false) return legacyLayout(settings);
+  // 0.6.3：没在排版台摆过版式时，给一个「左大图 + 右信息栏」的版式。
+  // 0.6.1 那时是整条竖排，用户把 14 个块全打开，就会变成一条又长又挤的竖列，
+  // 底部还会溢出页面被裁掉 —— 也就是他说的「字超出自定义的框」。
+  if (settings.useGrid === false) return blockLayout(settings);
   const grid = settings.grid;
   if (grid && Array.isArray(grid.items) && grid.items.length > 0) {
     return normalizeLayout(grid);
   }
   return legacyLayout(settings);
+}
+
+/**
+ * 由「板块清单」推出一个通栏版式：左 8 格放序号/标题/大图/图注/正文，
+ * 右 4 格按优先级竖排其余的块（评分、参数、拍摄手法、标签……）。
+ * 右栏放不下的块直接不排（比塞爆被裁好看），数量与顺序仍由用户在对话框里决定。
+ */
+export function blockLayout(settings: ExportSettings): PageLayout {
+  const ids = resolveBlocks(settings);
+  if (!ids.includes('image')) return verticalLayout(ids);
+
+  const items: LayoutItem[] = [];
+  const put = (id: PhotoBlockId, col: number, row: number, colSpan: number, rowSpan: number) => {
+    if (rowSpan <= 0) return;
+    items.push({ id, col, row, colSpan, rowSpan });
+  };
+
+  const LEFT = 8;
+  const RIGHT = GRID_COLS - LEFT;
+  let row = 0;
+  if (ids.includes('index')) {
+    put('index', 0, row, 2, 1);
+    row += 1;
+  }
+  if (ids.includes('title')) {
+    put('title', 0, row, LEFT, 2);
+    row += 2;
+  }
+
+  const wantsCaption = ids.includes('caption');
+  const wantsStory = ids.includes('story');
+  // 图框固定 9 行（约 9.4cm 高、11cm 宽 → 正好装 3:2 的横图），剩下的行全给正文
+  const imageRows = Math.min(9, Math.max(6, GRID_ROWS - row - (wantsCaption ? 1 : 0) - 4));
+  put('image', 0, row, LEFT, imageRows);
+  row += imageRows;
+  if (wantsCaption) {
+    put('caption', 0, row, LEFT, 1);
+    row += 1;
+  }
+  if (wantsStory) put('story', 0, row, LEFT, Math.max(2, GRID_ROWS - row));
+
+  // 右栏：按「越靠前越重要」的顺序往下堆，放不下的不排
+  const RIGHT_ORDER: PhotoBlockId[] = [
+    'score',
+    'advice',
+    'technique',
+    'params',
+    'exif',
+    'category',
+    'tags',
+    'mood',
+    'alt',
+  ];
+  const rowsFor = (id: PhotoBlockId): number => {
+    if (id === 'score') return 4;
+    if (id === 'advice') return 6;
+    if (id === 'technique') return 5;
+    if (id === 'params') return 3;
+    if (id === 'exif') return 2;
+    return 1;
+  };
+  let r = 0;
+  for (const id of RIGHT_ORDER) {
+    if (!ids.includes(id)) continue;
+    const rows = rowsFor(id);
+    if (r + rows > GRID_ROWS) continue;
+    put(id, LEFT, r, RIGHT, rows);
+    r += rows;
+  }
+
+  return normalizeLayout({ cols: GRID_COLS, rows: GRID_ROWS, items });
 }
 
 /** 积木的阅读顺序（从上到下、从左到右），写回 blocks 时用 */

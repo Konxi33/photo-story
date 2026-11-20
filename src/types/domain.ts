@@ -239,6 +239,16 @@ export interface ExportSettings {
    * 「按排版台的位置印」时写 false——grid 本身仍保留，不会被清掉。
    */
   useGrid?: boolean;
+  /** 0.6.3：正文字体（宋体/楷体/仿宋/黑体），PDF 与 Word 共用同一个定义 */
+  bodyFont?: 'song' | 'hei' | 'kai' | 'fang';
+  /** 0.6.3：纸面底色（纯白/米白/浅灰/墨黑） */
+  paper?: 'white' | 'ivory' | 'gray' | 'night';
+  /** 0.6.3：卷首语标题（默认「写在前面」） */
+  prefaceTitle?: string;
+  /** 0.6.3：卷首语正文，留空就不印这一页 */
+  preface?: string;
+  /** 0.6.3：后记，留空就不印 */
+  afterword?: string;
 }
 
 /** 相框样式 */

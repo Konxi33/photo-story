@@ -262,7 +262,9 @@ function blockInner(plan: ItemPlan, pt: number, ctx: ItemContext): string {
 
     case 'technique': {
       if (!a) return '';
-      const technique = truncated ? fitTechnique(a.technique, widthCm, heightCm, pt) : a.technique;
+      // 无论 plan 是否标记截断，都按真实渲染宽度再裁一次：plan 的估算口径与画格子的宽度不完全一致，
+      // 不裁就会从格子里溢出来压住下一块（用户看到的「字错乱」）。
+      const technique = fitTechnique(a.technique, widthCm, heightCm, pt);
       const rows = TECH_LABELS.filter(({ key }) => String(technique[key] ?? '').trim().length > 0)
         .map(
           ({ key, label }) =>
@@ -306,9 +308,9 @@ function blockInner(plan: ItemPlan, pt: number, ctx: ItemContext): string {
       if (!a) return '';
       const room = heightCm - 0.4;
       const groups: [string, string[]][] = [
-        ['为什么好看', truncated ? fitGroup(a.whyGood, innerWidthCm, room, pt) : a.whyGood ?? []],
-        ['可以更好', truncated ? fitGroup(a.improve, innerWidthCm, room, pt) : a.improve ?? []],
-        ['下次这样拍', truncated ? fitGroup(a.imitate, innerWidthCm, room, pt) : a.imitate ?? []],
+        ['为什么好看', fitGroup(a.whyGood, innerWidthCm, room, pt)],
+        ['可以更好', fitGroup(a.improve, innerWidthCm, room, pt)],
+        ['下次这样拍', fitGroup(a.imitate, innerWidthCm, room, pt)],
       ];
       const cards = groups
         .filter(([, list]) => list.length > 0)

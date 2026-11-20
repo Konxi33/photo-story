@@ -445,7 +445,7 @@ export default function ProjectsPage() {
                 <div
                   className="h-full rounded-full bg-ink/45 transition-[width] duration-700 ease-[var(--ease-out)]"
                   style={{
-                    width: `${Math.max(2, Math.min(100, Math.round((usage.usage / usage.quota) * 100)))}%`,
+                    width: `max(4px, ${Math.min(100, Math.round((usage.usage / usage.quota) * 100))}%)`,
                   }}
                 />
               </div>

@@ -27,9 +27,11 @@ import {
 import type { ExportSettings, Photo, Project } from '@/types/domain';
 
 import { buildAppendix } from './appendix';
+import { normalizeExportSettings } from './bookStyle';
+import { buildProsePage } from './prose';
 // 0.6.1：流式排版（buildPhotoSection）已不再用于导出 —— 它保证不了「一张图和它的文字不跨页」。
 // 所有单页现在都走 buildGridPhotoSection（12×24 网格表），需要老观感时由 resolveLayout 折成竖排网格。
-import { buildGridPhotoSection } from './word-grid';
+import { buildSingleFlowSection } from './word-grid';
 import { buildChapterHeading, buildChapterOpener, planChapters, type ChapterPlan } from './chapter';
 import { buildCoverSection } from './cover';
 import { buildRunFont, buildRunStyle } from './fonts';
@@ -51,7 +53,9 @@ export interface BuildDocumentParams {
 }
 
 export function buildDocument(params: BuildDocumentParams): Document {
-  const { project, photos, images, thumbs, coverImage, settings, exportDate, chapters } = params;
+  const { project, photos, images, thumbs, coverImage, exportDate, chapters } = params;
+  // 0.6.3：相框已经把机型/参数烧进图片时，不再重复印相机信息与参数表
+  const settings = normalizeExportSettings(params.settings);
 
   // 0.5.4：封面单独成节 —— 这样封面不参与页码，正文第一页才从「第 1 页」开始，
   // 打印装订出来更正式；封面节也不印页眉。
@@ -104,6 +108,20 @@ export function buildDocument(params: BuildDocumentParams): Document {
   }
 
   const plannedIds = new Set(chapterPlan.flatMap((entry) => entry.photos.map((p) => p.id)));
+  // 0.6.3：卷首语。画册正文前面那一段「为什么拍这些」，比任何排版技巧都更能把人留住。
+  if (settings.preface && settings.preface.trim().length > 0) {
+    children.push(
+      ...buildProsePage({
+        label: '写在前面',
+        title: settings.prefaceTitle?.trim() || '写在前面',
+        body: settings.preface,
+        contentWidthCm: exportContentCm(settings),
+        contentHeightCm: exportContentHeightCm(settings),
+      }),
+    );
+    hasPreviousContent = true;
+  }
+
   const restPhotos = chapterPlan.length > 0 ? photos.filter((p) => !plannedIds.has(p.id)) : photos;
 
   let photoIndex = 0;
@@ -121,22 +139,24 @@ export function buildDocument(params: BuildDocumentParams): Document {
   const contentCm = exportContentCm(settings);
   const fullHeightCm = exportContentHeightCm(settings);
 
+  // 「左 8 / 右 4」两栏：块全都落在左半或右半，没有跨栏的复杂摆位
   const photoPage = (
     photo: Photo,
     index: number,
     opts: { isFirst: boolean; hasChapterHeading?: boolean; heading?: (Paragraph | Table)[] },
   ): (Paragraph | Table)[] => {
-    const image = images.get(photo.id) ?? null;
-    return buildGridPhotoSection({
+    const image = images.get(photo.id);
+    if (!image) return [];
+    // 0.6.3：Word 一律走「单栏流式」——纯段落、零嵌套表、零固定行高。
+    // Word/LibreOffice 的 HeightRule.EXACT 不裁内容，一旦块比格子高就字压字；
+    // 单栏流式让段落自然往下排，排满一页自动翻页，永远不会重叠或被裁。
+    // 用户在排版台定的「顺序」仍被尊重（buildSingleFlowSection 内部用 layoutOrder）。
+    return buildSingleFlowSection({
       photo,
       index,
       image,
       settings,
       contentCm,
-      // 0.6.1：章头高度由 word-grid 自己扣（它得知道这一页顶上有没有章头），
-      // 所以章头必须作为 `heading` 传进去，不能在外面单独 push —— 否则
-      // 表格按整页高排、章头再压在顶上，两者相加超出页高，LibreOffice 会把
-      // 整块推到下一页，结果每章多一张白页（实测 20 张照片印成 37 页）。
       contentHeightCm: fullHeightCm,
       heading: opts.heading,
       pageBreakBefore: !opts.isFirst,
@@ -208,6 +228,19 @@ export function buildDocument(params: BuildDocumentParams): Document {
       ...photoPage(photo, photoIndex, { isFirst: photoIndex === 1 && !hasPreviousContent }),
     );
   });
+
+  // 0.6.3：后记，放在图版之后、技术附录之前
+  if (settings.afterword && settings.afterword.trim().length > 0) {
+    children.push(
+      ...buildProsePage({
+        label: '后记',
+        title: '后记',
+        body: settings.afterword,
+        contentWidthCm: exportContentCm(settings),
+        contentHeightCm: exportContentHeightCm(settings),
+      }),
+    );
+  }
 
   // 0.5.5：图注不再挂一串参数，参数统一收到书末技术附录（真实摄影书的做法）。
   // captionStyle === 'both' 时参数已经在图注里，就不再重复印一遍。

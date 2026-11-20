@@ -92,6 +92,8 @@ export default function StudioPage() {
 
   const [layout, setLayout] = useState<PageLayout>(getLayoutPreset('photobook')!.layout);
   const [selected, setSelected] = useState<PhotoBlockId | null>(null);
+  // 0.6.3：拖到「放不下」的位置时给出红色虚框反馈 —— 之前是静默不动，用户以为拖不动
+  const [ghost, setGhost] = useState<{ item: LayoutItem; ok: boolean } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -404,10 +406,17 @@ export default function StudioPage() {
 
       const clamped = clampItem(candidate, current);
       const min = MIN_BOX[drag.id];
-      if (clamped.colSpan < min.colSpan || clamped.rowSpan < min.rowSpan) return;
-
       const others = current.items.filter((item) => item.id !== drag.id);
-      if (others.some((item) => overlaps(item, clamped))) return;
+      const blocked =
+        clamped.colSpan < min.colSpan ||
+        clamped.rowSpan < min.rowSpan ||
+        others.some((item) => overlaps(item, clamped));
+
+      if (blocked) {
+        setGhost({ item: clamped, ok: false });
+        return;
+      }
+      setGhost(null);
 
       const same =
         clamped.col === drag.origin.col &&
@@ -429,6 +438,7 @@ export default function StudioPage() {
     };
 
     const onUp = () => {
+      setGhost(null);
       if (!dragRef.current) return;
       dragRef.current = null;
       historyRef.current = [...historyRef.current.slice(-40), layoutRef.current];
@@ -708,6 +718,23 @@ export default function StudioPage() {
                 }}
               />
 
+              {ghost ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute z-30 rounded-[3px] border-2 border-dashed border-rose-400/80 bg-rose-400/10"
+                  style={{
+                    left: `${(ghost.item.col / GRID_COLS) * 100}%`,
+                    top: `${(ghost.item.row / GRID_ROWS) * 100}%`,
+                    width: `${(ghost.item.colSpan / GRID_COLS) * 100}%`,
+                    height: `${(ghost.item.rowSpan / GRID_ROWS) * 100}%`,
+                  }}
+                >
+                  <span className="absolute left-1 top-1 rounded bg-rose-500/90 px-1 py-0.5 text-[9px] text-white">
+                    这里放不下
+                  </span>
+                </div>
+              ) : null}
+
               {layout.items.map((item) => {
                 const active = selected === item.id;
                 return (
@@ -729,6 +756,11 @@ export default function StudioPage() {
                     }}
                   >
                     <BlockPreview id={item.id} analysis={sampleAnalysis} imageUrl={previewUrl} index={1} />
+                    {active ? (
+                      <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-ink/80 px-1 py-0.5 text-[9px] font-medium text-white">
+                        {item.col + 1} 列 · {item.row + 1} 行 · {item.colSpan}×{item.rowSpan}
+                      </span>
+                    ) : null}
                     {active ? (
                       <>
                         <button
@@ -752,7 +784,10 @@ export default function StudioPage() {
                 );
               })}
             </div>
-            <p className="mt-3 text-center text-[11px] text-ink-faint">
+            <p className="mt-2 text-center text-[11px] text-ink-faint">
+              拖动积木改位置 · 选中后拉右下角小方块改大小 · 方向键微调 1 格 · 拖到红框说明那里放不下
+            </p>
+            <p className="mt-1 text-center text-[11px] text-ink-faint">
               {contentCm.toFixed(1)} × {contentHeightCm.toFixed(1)} cm 版心 · {GRID_COLS} 列 × {GRID_ROWS} 行
               {plan && plan.warnings.length > 0 ? ` · ${plan.warnings[0]}` : ''}
             </p>

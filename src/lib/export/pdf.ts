@@ -27,23 +27,17 @@ import { encodeImageForDocx } from './image-encode';
 import { tidyParam } from './params';
 import { measureTextCm } from './layout';
 import { GRID_HEADING_RESERVE_CM, buildGridPhotoPage } from './pdf-grid';
+import { exportContentCm, exportContentHeightCm, exportMarginCm } from './metrics';
+import { HEAD_FONT_CSS, bodyFontOption, normalizeExportSettings, paperTintOption } from './bookStyle';
 
 interface Candidate {
   photo: Photo;
   dataUrl: string | null;
 }
 
-/** 纸张尺寸（mm），键与 ExportSettings.paperSize 对齐 */
-const PAPER_MM: Record<'a4' | 'a5', [number, number]> = {
-  a4: [210, 297],
-  a5: [148, 210],
-};
-
-const MARGIN_MM: Record<'narrow' | 'normal' | 'wide', number> = {
-  narrow: 12,
-  normal: 18,
-  wide: 26,
-};
+// 0.6.3：纸张尺寸、边距、版心宽高一律来自 metrics.ts 与 wordLayout.ts 的 WORD_PAPER，
+// 这里不再维护第二套常量 —— 以前 PDF 用 12/18/26mm、Word 用 16/22/30mm，
+// 同一份稿子在两个格式里版心宽度差 8mm，右侧内容自然顶出纸边。
 
 function escapeHtml(text: string): string {
   return text
@@ -97,20 +91,17 @@ interface Layout {
 
 function resolveLayout(settings: ExportSettings): Layout {
   const paper = settings.paperSize === 'a5' ? 'a5' : 'a4';
-  const [w, h] = PAPER_MM[paper];
   const landscape = settings.orientation === 'landscape';
-  const marginMm = MARGIN_MM[settings.margins] ?? MARGIN_MM.normal;
-  const gutterMm = settings.gutter ?? 0;
-  const pageW = landscape ? h : w;
-  const pageH = landscape ? w : h;
-  return {
-    paper,
-    landscape,
-    marginMm,
-    gutterMm,
-    contentW: Math.max(60, pageW - marginMm * 2 - gutterMm),
-    contentH: Math.max(90, pageH - marginMm * 2),
-  };
+  const marginMm = exportMarginCm(settings) * 10;
+  /**
+   * 0.6.3 修：以前这里用的是自己那套 12/18/26mm 边距、并把 settings.gutter（单位是 cm）
+   * 当 mm 用，于是 PDF 的版心比 Word 宽 8mm，积木按 16.6cm 摆、页面按 17.4cm 画，
+   * 右栏文字就顶到纸边甚至被裁。现在版心宽高**只来自 metrics.ts**，与 Word 完全同一套。
+   */
+  const gutterMm = (settings.gutter ?? 0) * 10;
+  const contentW = exportContentCm(settings) * 10;
+  const contentH = exportContentHeightCm(settings) * 10;
+  return { paper, landscape, marginMm, gutterMm, contentW, contentH };
 }
 
 /** 按章节重排照片；没有编排就按原顺序 */
@@ -136,7 +127,11 @@ function orderPhotos(
 
 /** 构建整册 HTML（打印用）。0.6.0 起导出给打印/预览/自测脚本用。 */
 export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
-  const { project, photos, settings, onProgress } = params;
+  const { project, photos, onProgress } = params;
+  // 0.6.3：相框已经把机型/参数烧进图片时不再重复印；字体与纸色统一从 bookStyle 取
+  const settings = normalizeExportSettings(params.settings);
+  const bodyFont = bodyFontOption(settings.bodyFont);
+  const tint = paperTintOption(settings.paper);
   const edge =
     settings.imageQuality === 'ultra' ? 2000 : settings.imageQuality === 'high' ? 1500 : 1000;
   const layout = resolveLayout(settings);
@@ -198,9 +193,13 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
    * 0.6.0：这一册是不是「积木版式」。判据与 Word 侧（document.ts）一致：
    * 只要 settings.grid 里真的摆了积木、且没有被 useGrid:false 关掉，就按画布绝对定位来画。
    */
-  const useGrid = Boolean(
-    settings.useGrid !== false && settings.grid && settings.grid.items && settings.grid.items.length > 0,
-  );
+  /**
+   * 0.6.3：PDF 也只有「积木」一条路。
+   * 旧的双栏流式排版（bodyColumns=2 时）会把正文挤到左栏、其它板块挤到右栏并顶出纸边，
+   * 用户实测就是「字错乱 + 被截掉」。关掉排版台时 resolveLayout 会给出竖排的网格，
+   * 于是仍然走同一套绝对定位，只是每块占满整宽。
+   */
+  const useGrid = Boolean(settings.grid && Array.isArray(settings.grid.items) && settings.grid.items.length > 0) && settings.useGrid !== false;
 
   const photoSection = (
     { photo, dataUrl }: Candidate,
@@ -415,6 +414,31 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     bodyParts.push(photoSection({ photo, dataUrl: encoded.get(photo.id) ?? null }, order));
   });
 
+  // 0.6.3：卷首语与后记。翻开封面的第一段文字决定了读者还看不看下去，
+  // 所以只放一个标签、一行标题、一段话，其余全留白。
+  const prosePage = (label: string, title: string, body: string): string => {
+    const paras = body
+      .replace(/\r\n/g, '\n')
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
+      .join('');
+    return `<section class="page prose">
+      <p class="p-label">${escapeHtml(label)}</p>
+      <h2>${escapeHtml(title)}</h2>
+      <div class="p-rule"></div>
+      ${paras}
+    </section>`;
+  };
+
+  if (settings.preface && settings.preface.trim()) {
+    bodyParts.unshift(prosePage('写在前面', settings.prefaceTitle?.trim() || '写在前面', settings.preface));
+  }
+  if (settings.afterword && settings.afterword.trim()) {
+    bodyParts.push(prosePage('后记', '后记', settings.afterword));
+  }
+
   // 总览页：3 或 4 列缩略图墙，一页之内按张数自动分列
   const overview = settings.includeOverview
     ? `<section class="page break">
@@ -455,13 +479,21 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>${escapeHtml(project.name)}</title>
 <style>
+  /* 0.6.3：纸色与墨色集中成变量，正文/图注/分隔线全部跟着走。
+     以前颜色是散落在十几条规则里的字面值，改一处忘一处，几种灰混在一起看着就脏。 */
+  :root {
+    --paper: ${tint.bg};
+    --ink: ${tint.ink};
+    --ink-soft: ${tint.inkSoft};
+    --line: ${tint.line};
+  }
   /* 页边距与纸张由 printToPDF 传入，这里只声明纸张大小，避免两套边距打架 */
   @page { size: ${layout.paper.toUpperCase()} ${layout.landscape ? 'landscape' : 'portrait'};
     margin: ${mSide} ${mSide} ${mSide} ${mLeft}; }
   * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; }
-  body { color:#1a1a1a; background:#fff;
-    font-family: "Source Han Serif SC","Songti SC","SimSun","宋体",serif;
+  html, body { margin:0; padding:0; background: var(--paper); }
+  body { color: var(--ink); background: var(--paper);
+    font-family: ${bodyFont.css};
     font-size: 11pt; line-height: 1.7; -webkit-print-color-adjust: exact; }
   .page { break-inside: auto; orphans: 2; widows: 2; }
   /* 0.5.7：一张照片和它的全部文字必须落在同一页，不许被拆成两页 */
@@ -547,7 +579,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .gitem .rule { display:none; }
   .gitem .cap { margin:0; text-align:left; font-size:1em; line-height:1.45; }
   .gitem .story { margin:0; font-size:1em; line-height:1.65; text-indent:2em; text-align:justify; }
-  .gitem .techs { margin:0; }
+  .gitem .techs { margin:0; max-height:100%; overflow:hidden; }
   .gitem .tech { font-size:1em; line-height:1.5; margin-bottom:0.5mm; gap:1.5mm; }
   .gitem .tech span { flex:0 0 2.6em; }
   .gitem .exif, .gitem .category, .gitem .mood, .gitem .alt, .gitem .tags {
@@ -567,6 +599,25 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .gitem .advice .card { padding:1mm 1.4mm; }
   .gitem .card-title { font-size:0.85em; margin:0 0 0.5mm; }
   .gitem .card-line { font-size:1em; line-height:1.5; margin:0; }
+
+  /* 0.6.3 排版统一：标题一律无衬线，正文用用户选的字体；
+     次要信息统一 --ink-soft，分隔线统一 --line。 */
+  h1, h2, h3, .chapter-name, .ov-title, .cover h1, .score-num, .ghead .gtitle {
+    font-family: ${HEAD_FONT_CSS}; font-weight: 600; letter-spacing: .01em;
+  }
+  .sub, .meta, .idx, .cap, .exif, .alt, .chapter-no, .chapter-note, .tags, .category, .mood,
+  .gscore-line, .tech span, .ov-cell figcaption, .gcap { color: var(--ink-soft); }
+  .rule, .ov-title + .rule { background: var(--line); }
+  .ov-ph { background: var(--line); }
+  .story, .gitem .story { font-family: ${bodyFont.css}; }
+  .idx, .cap, .exif, .score-num, .chapter-no, .gcap, .gscore-num { font-variant-numeric: tabular-nums; }
+
+  /* 卷首语 / 后记：只有字的一页 */
+  .prose { break-before: page; }
+  .prose .p-label { margin: 0; font-size: 9.5pt; letter-spacing: .28em; color: var(--ink-soft); }
+  .prose h2 { margin: 8mm 0 4mm; font-size: 20pt; text-align: left; }
+  .prose .p-rule { width: 26mm; height: 1px; background: var(--line); margin: 0 0 6mm; }
+  .prose p { margin: 0 0 4mm; text-indent: 2em; text-align: justify; font-size: 11pt; line-height: 1.9; }
 </style></head><body>
 ${settings.includeCover ? cover : ''}
 ${overview}

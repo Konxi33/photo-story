@@ -671,8 +671,9 @@ function SidebarContent({
       {/* 当前选中项指示条（位置由 WAAPI 驱动，详见上方 useEffect） */}
       <span
         ref={barRef}
+        data-sidebar-indicator
         aria-hidden
-        className="pointer-events-none absolute left-0 z-10 w-[3px] rounded-full bg-ink opacity-0"
+        className="pointer-events-none absolute left-[2px] z-10 w-[2.5px] rounded-full bg-ink opacity-0"
         style={{ top: 0, height: 0, transform: 'translateY(0px)' }}
       />
       {/* 顶部：品牌 + 折叠按钮 */}
@@ -724,7 +725,9 @@ function SidebarContent({
         </button>
       )}
 
-      <div className="relative grid gap-6">
+      {/* 0.6.3：给指示条留一条窄缝（pl-[7px]）。原来指示条压在选中项自己的圆角里，
+          两团深色叠在一起，看起来像「滑条和别的东西重叠了」。 */}
+      <div className="relative grid gap-6 pl-[7px]">
         {GROUPS.map((group) => (
           <div key={group.title} className="grid gap-0.5">
             {!compact && (
@@ -836,7 +839,7 @@ function NavLink({
           !active && 'group-hover/nav:scale-[1.08]',
         )}
       />
-      {!compact && <span data-sidebar-label>{item.label}</span>}
+      {!compact && <span data-sidebar-label className="leading-[1.25]">{item.label}</span>}
     </Link>
   );
 }
