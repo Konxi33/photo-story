@@ -23,6 +23,34 @@ export const DEFAULT_APPEARANCE: Appearance = {
 
 const STORAGE_KEY = 'ps:appearance';
 
+/**
+ * 0.7.3：把外观也镜像到 cookie，供服务端首帧直接渲染到 <html> 上。
+ *
+ * 为什么非做不可：主题原本只存在 localStorage，服务端拿不到，只能靠 <head> 里的
+ * 内联脚本在水合前改 <html> 的 data-* 属性。React 19 会在根元素上比对属性，
+ * 脚本一改就判定「服务端渲染的 HTML 和客户端不一致」（React #418），整棵树重画一遍。
+ * cookie 让服务端把同一份值直接渲染出来，内联脚本只在值确实不同的时候才动手，
+ * 正常打开时一个属性都不碰。
+ */
+export const UI_COOKIE = 'ps_ui';
+export const SIDEBAR_COOKIE = 'ps_side';
+
+type CookieWriter = (name: string, value: string) => void;
+
+const writeCookie: CookieWriter = (name, value) => {
+  try {
+    document.cookie = `${name}=${value}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {
+    // cookie 写不了就只退化成本地 localStorage
+  }
+};
+
+/** 侧栏折叠状态也镜像一份，避免首帧脚本改 data-sidebar 触发同样的水合问题 */
+export function mirrorSidebarCookie(compact: boolean): void {
+  if (typeof document === 'undefined') return;
+  writeCookie(SIDEBAR_COOKIE, compact ? 'compact' : 'expanded');
+}
+
 export function systemPrefersDark(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -82,4 +110,16 @@ export function applyAppearance(appearance: Appearance): void {
   } catch {
     // 隐私模式写不了就算了
   }
+
+  // 同步镜像到 cookie：dark|themeMode|glass|font|blur
+  writeCookie(
+    UI_COOKIE,
+    [
+      dark ? 'dark' : 'light',
+      appearance.themeMode,
+      appearance.glass ? 'on' : 'off',
+      appearance.fontFamily,
+      String(Math.round(appearance.glassBlur)),
+    ].join('|'),
+  );
 }

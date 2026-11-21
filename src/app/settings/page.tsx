@@ -105,6 +105,19 @@ const THEMES: { id: NonNullable<AppSettings['theme']>; label: string; color: str
   { id: 'dark', label: '暗色', color: '#161618' },
 ];
 
+const NAV_ITEMS: ReadonlyArray<readonly [string, string]> = [
+  ['ai', '模型与密钥'],
+  ['style', '文案风格'],
+  ['gen', '生成参数'],
+  ['look', '外观'],
+  ['perf', '性能'],
+  ['photo', '照片与相框'],
+  ['start', '打开与默认'],
+  ['app', '应用'],
+  ['update', '版本更新'],
+  ['store', '存储与导出'],
+];
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -623,7 +636,7 @@ export default function SettingsPage() {
         </div>
       }
     >
-      <div className="mx-auto w-full max-w-3xl px-5 py-9 md:px-8">
+      <div className="mx-auto w-full max-w-5xl px-5 py-9 md:px-8">
         <p className="ps-eyebrow">Settings</p>
         <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">设置</h1>
         <p className="mt-2 text-[13px] text-ink-mid">
@@ -634,19 +647,8 @@ export default function SettingsPage() {
             0.3.5：不用 href="#id"——改 hash 会让浏览器做一次锚点滚动，
             在带 sticky 导航与转场容器的布局里会横向抖一下。改成手动 scrollIntoView。
             0.5.1：横向滚动 + 两端渐隐 + 当前分组高亮（IntersectionObserver）。 */}
-        <nav className="ps-edge-fade ps-no-scrollbar sticky top-0 z-10 -mx-1 mt-5 mb-1 flex gap-1.5 overflow-x-auto px-1 py-2 backdrop-blur-sm">
-          {[
-            ['ai', '模型与密钥'],
-            ['style', '文案风格'],
-            ['gen', '生成参数'],
-            ['look', '外观'],
-            ['perf', '性能'],
-            ['photo', '照片与相框'],
-            ['start', '打开与默认'],
-            ['app', '应用'],
-            ['update', '版本更新'],
-            ['store', '存储与导出'],
-          ].map(([id, label]) => (
+        <nav className="ps-edge-fade ps-no-scrollbar sticky top-0 z-10 -mx-1 mt-5 mb-1 flex gap-1.5 overflow-x-auto px-1 py-2 backdrop-blur-sm lg:hidden">
+          {NAV_ITEMS.map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -666,6 +668,33 @@ export default function SettingsPage() {
           ))}
         </nav>
 
+        {/* 0.7.3：宽屏把分组导航搬到左边常驻，右侧正文变宽，滚动时也知道自己在哪一节 */}
+        <div className="mt-5 grid gap-8 lg:grid-cols-[176px_minmax(0,1fr)]">
+          <nav className="hidden lg:block" aria-label="设置分组">
+            <div className="sticky top-6 flex flex-col border-l border-line/60 pl-3">
+              {NAV_ITEMS.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    const target = document.getElementById(id);
+                    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  aria-current={activeSection === id ? 'true' : undefined}
+                  className={cn(
+                    '-ml-3 rounded-r-md border-l-2 py-1.5 pr-2 pl-3 text-left text-[12.5px] transition-colors duration-200',
+                    activeSection === id
+                      ? 'border-copper font-medium text-ink'
+                      : 'border-transparent text-ink-faint hover:text-ink',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <div className="min-w-0">
         {/* 模型 */}
         <Section id="ai" icon={<Sparkles className="h-4 w-4" />} title="模型与密钥" desc="兼容 OpenAI 协议的视觉模型服务">
           <Field label="服务商">
@@ -1347,6 +1376,8 @@ export default function SettingsPage() {
             </Button>
           </Row>
         </Section>
+          </div>
+        </div>
       </div>
 
       {/* 卸载确认 */}

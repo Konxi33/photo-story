@@ -175,7 +175,7 @@ export default function ChangelogPage() {
                 key={entry.version}
                 id={'v-' + entry.version.replace(/\./g, '-')}
                 data-version={entry.version}
-                className="ps-enter relative scroll-mt-24 pb-2"
+                className="ps-enter ps-reveal relative scroll-mt-24 pb-2"
                 style={{ ['--ps-delay' as string]: `${Math.min(index, 8) * 45}ms` }}
               >
                 <span

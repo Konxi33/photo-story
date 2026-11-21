@@ -4,7 +4,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AlertCircle, Loader2 } from 'lucide-react';
+
 import { toast } from 'sonner';
+
+import { cn } from '@/lib/utils';
 
 import {
   AlertDialog,
@@ -180,6 +183,12 @@ export default function WorkbenchPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // 0.7.3：记住「上次在哪个项目」，首页的「继续上次」直接用它
+    try {
+      window.localStorage.setItem('ps:last-project', projectId);
+    } catch {
+      /* 隐身模式 / 配额满：不影响使用 */
+    }
     // 有缓存就先画出来（标题、操作栏立刻可见），再去后台刷新真实数据
     const cached = recallProject(projectId);
     if (cached) {
@@ -918,6 +927,50 @@ export default function WorkbenchPage() {
         onOpenSettings={() => setSettingsOpen(true)}
         onExport={() => setPreflightOpen(true)}
       />
+
+      {/* 0.7.3：项目体征条——进项目第一眼就知道这册书走到哪一步了（原来要往下看才知道） */}
+      {photos.length > 0 && (
+        <div className="border-b border-line/60 bg-surface/55">
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2 md:px-6">
+            {[
+              { label: '照片', value: photos.length, copper: false },
+              { label: '已生成', value: photos.filter((p) => p.status === 'success').length, copper: false },
+              {
+                label: '已评分',
+                value: photos.filter((p) => p.status === 'success' && p.analysis?.score).length,
+                copper: false,
+              },
+              { label: '已选', value: photos.filter((p) => p.selected).length, copper: true },
+            ].map((item) => (
+              <span key={item.label} className="flex items-baseline gap-1.5">
+                <span className="text-[10px] tracking-[0.08em] text-ink-faint">{item.label}</span>
+                <span className={cn('ps-stat text-[13px] leading-none', item.copper ? 'text-copper' : 'text-ink')}>
+                  {item.value}
+                </span>
+              </span>
+            ))}
+
+            <div className="ml-auto flex min-w-[148px] flex-1 items-center gap-2">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-line/50">
+                <div
+                  className="h-full rounded-full bg-ink/55 transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${Math.round(
+                      (photos.filter((p) => p.status === 'success').length / Math.max(1, photos.length)) * 100,
+                    )}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[10.5px] tabular-nums text-ink-faint">
+                {Math.round(
+                  (photos.filter((p) => p.status === 'success').length / Math.max(1, photos.length)) * 100,
+                )}
+                %
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto w-full max-w-6xl px-5 pb-24 md:px-6">
         {!hasKey && (

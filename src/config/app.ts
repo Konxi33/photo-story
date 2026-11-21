@@ -7,7 +7,7 @@ import type { AppSettings, ExportSettings, PhotoErrorCode } from '@/types/domain
 export const APP_NAME = '照片故事' as const;
 export const APP_NAME_EN = 'Photo Story' as const;
 export const APP_DESCRIPTION = '把照片，写成一册随笔' as const;
-export const APP_VERSION = '0.7.2' as const;
+export const APP_VERSION = '0.7.3' as const;
 export const EXPORT_FILENAME_PREFIX = '照片故事' as const;
 
 export const DEFAULT_CONCURRENCY = 3 as const;

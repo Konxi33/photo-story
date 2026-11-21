@@ -2171,3 +2171,74 @@ html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-lab
     transition: none;
   }
 }
+
+/* ============================ 0.7.3 书桌 ============================ */
+
+/* 首页桌面的一层暖光：只落在左上角，让大片留白有落点。
+   用 radial-gradient 而不是模糊图片 —— 合成成本几乎为零。 */
+.ps-desk-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      62% 44% at 14% -6%,
+      color-mix(in srgb, var(--color-copper) 16%, transparent) 0%,
+      transparent 68%
+    ),
+    radial-gradient(
+      48% 36% at 96% 4%,
+      color-mix(in srgb, var(--color-cool) 12%, transparent) 0%,
+      transparent 70%
+    );
+}
+
+[data-theme='dark'] .ps-desk-glow {
+  opacity: 0.55;
+}
+
+/* 顶栏面包屑里的分组胶囊 */
+.ps-crumb {
+  display: inline-flex;
+  align-items: center;
+  height: 1.35rem;
+  padding-inline: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background-color: color-mix(in srgb, var(--color-surface-2) 70%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* 顶栏的搜索框（看起来像输入框，点开是命令面板） */
+.ps-search {
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  min-width: 12rem;
+  padding-inline: 0.75rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--hairline) 90%, transparent);
+  background-color: color-mix(in srgb, var(--color-surface-2) 62%, transparent);
+  font-size: 11.5px;
+  color: var(--color-ink-faint);
+  transition:
+    border-color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out);
+}
+
+.ps-search:hover {
+  color: var(--color-ink-mid);
+  border-color: color-mix(in srgb, var(--color-copper) 32%, var(--hairline));
+  background-color: color-mix(in srgb, var(--color-surface) 88%, transparent);
+}
+
+.ps-search:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-copper) 55%, transparent);
+  outline-offset: 2px;
+}

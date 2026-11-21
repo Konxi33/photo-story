@@ -431,116 +431,117 @@ export default function ScorePage() {
         {/* 0.5.5：第一次进来先告诉用户这个模块是干什么用的 */}
         <ModuleGuide moduleId="score" className="mb-5" />
 
-        {/* 概览 */}
-        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <Stat
-            label="平均分"
-            value={average ? average.toFixed(1) : '—'}
-            hint={scored.length + ' 张已评分'}
-            delay={0}
-          />
-          <Stat
-            label="最高分"
-            value={highest ? highest.toFixed(1) : '—'}
-            hint="本机全部项目"
-            delay={60}
-          />
-          <Stat
-            label="已评分"
-            value={String(scored.length)}
-            hint={'共 ' + (items?.length ?? 0) + ' 张'}
-            delay={120}
-          />
-          <Stat
-            label="待评分"
-            value={String(unscoredCount)}
-            hint={unscoredCount > 0 ? '点右上角批量补' : '全部照片都已评分'}
-            delay={180}
-          />
-        </div>
-
-        {/* 0.4.2：分数分布——比单个平均分更能看出这组照片的水平集中在哪 */}
-        {scored.length >= 3 && (
-          <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_250px]">
-          <section className="ps-enter min-w-0 self-start rounded-[14px] border border-line/60 bg-surface px-4 py-3.5">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="ps-eyebrow">分数分布</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-[10.5px] text-ink-faint">
-                  {distribution.reduce((best, b) => (b.count > best.count ? b : best)).label} 档最多
-                </span>
-                <button
-                  type="button"
-                  onClick={handleExportCsv}
-                  className="rounded-full border border-line/60 bg-surface-2/70 px-2.5 py-1 text-[10.5px] text-ink-mid transition-colors duration-200 hover:border-ink/20 hover:text-ink"
-                  title="导出为 CSV，可用 Excel 打开"
-                >
-                  导出评分表
-                </button>
+        {/* 0.7.3：四张读数卡 + 直方图 + 雷达合成一张「体检卡」——
+            左列给总分（一眼看到水平），右列给分布与维度（看到问题在哪） */}
+        <section className="ps-enter mb-4 overflow-hidden rounded-[16px] border border-line/60 bg-surface">
+          <div className="grid lg:grid-cols-[232px_1fr]">
+            <div className="flex flex-col justify-between gap-5 border-b border-line/50 px-5 py-4.5 lg:border-r lg:border-b-0">
+              <div>
+                <p className="ps-eyebrow">平均分</p>
+                <p className="ps-stat mt-2 text-[42px] leading-none tracking-[-0.02em]">
+                  {average ? average.toFixed(1) : '—'}
+                </p>
+                <p className="mt-2.5 text-[11px] leading-relaxed text-ink-faint">
+                  {scored.length} 张已评分 · 共 {items?.length ?? 0} 张
+                </p>
               </div>
+
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <dt className="text-[10px] tracking-[0.08em] text-ink-faint">最高</dt>
+                  <dd className="ps-stat mt-0.5 text-[15px] leading-none">
+                    {highest ? highest.toFixed(1) : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] tracking-[0.08em] text-ink-faint">待评</dt>
+                  <dd className="ps-stat mt-0.5 text-[15px] leading-none">{unscoredCount}</dd>
+                </div>
+              </dl>
             </div>
 
-            {/* 0.4.3 修复：柱子高度百分比必须有确定的参照高度，
-                原来外层 h-16 + 内层 auto 高度，height:70% 解析成 0，柱子整个看不见 */}
-            <div className="flex items-start gap-1.5">
-              {distribution.map((bin, index) => {
-                const max = Math.max(...distribution.map((b) => b.count), 1);
-                const height = (bin.count / max) * 100;
-                return (
-                  <div
-                    key={bin.label}
-                    className="group/bin flex h-40 flex-1 flex-col items-center justify-end gap-1"
-                  >
-                    <span
-                      className={cn(
-                        'text-[9.5px] tabular-nums',
-                        bin.count > 0 ? 'text-ink-mid' : 'text-ink-faint/60',
-                      )}
-                    >
-                      {bin.count}
-                    </span>
-                    <div
-                      className={cn(
-                        'w-full origin-bottom rounded-t-[4px] transition-colors duration-200',
-                        bin.count === 0
-                          ? 'h-[2px] bg-line/60'
-                          : 'bg-ink/65 group-hover/bin:bg-ink',
-                      )}
-                      style={{
-                        ...(bin.count === 0 ? {} : { height: `${Math.max(6, height)}%` }),
-                        animation: `ps-bar-grow 620ms var(--ease-out) ${index * 50}ms both`,
-                      }}
-                    />
+            {scored.length >= 3 ? (
+              <div className="grid md:grid-cols-[1fr_236px]">
+                <div className="min-w-0 px-5 py-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="ps-eyebrow">分数分布</h2>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10.5px] text-ink-faint">
+                        {distribution.reduce((best, b) => (b.count > best.count ? b : best)).label} 档最多
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleExportCsv}
+                        className="rounded-full border border-line/60 bg-surface-2/70 px-2.5 py-1 text-[10.5px] text-ink-mid transition-colors duration-200 hover:border-ink/20 hover:text-ink"
+                        title="导出为 CSV，可用 Excel 打开"
+                      >
+                        导出评分表
+                      </button>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
 
-            <div className="mt-1.5 flex gap-1.5">
-              {distribution.map((bin) => (
-                <span
-                  key={bin.label}
-                  className="flex-1 text-center text-[9px] tabular-nums text-ink-faint"
-                >
-                  {bin.label}
-                </span>
-              ))}
-            </div>
-          </section>
+                  {/* 柱子高度百分比必须有确定的参照高度，否则解析成 0 看不见 */}
+                  <div className="flex items-start gap-1.5">
+                    {distribution.map((bin, index) => {
+                      const max = Math.max(...distribution.map((b) => b.count), 1);
+                      const height = (bin.count / max) * 100;
+                      return (
+                        <div
+                          key={bin.label}
+                          className="group/bin flex h-32 flex-1 flex-col items-center justify-end gap-1"
+                        >
+                          <span
+                            className={cn(
+                              'text-[9.5px] tabular-nums',
+                              bin.count > 0 ? 'text-ink-mid' : 'text-ink-faint/60',
+                            )}
+                          >
+                            {bin.count}
+                          </span>
+                          <div
+                            className={cn(
+                              'w-full origin-bottom rounded-t-[4px] transition-colors duration-200',
+                              bin.count === 0
+                                ? 'h-[2px] bg-line/60'
+                                : 'bg-ink/65 group-hover/bin:bg-ink',
+                            )}
+                            style={{
+                              ...(bin.count === 0 ? {} : { height: `${Math.max(6, height)}%` }),
+                              animation: `ps-bar-grow 620ms var(--ease-out) ${index * 50}ms both`,
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
 
-          {/* 0.5.0：维度雷达——条形图只能逐个看，雷达能一眼看出哪一维塌下去 */}
-          <section
-            className="ps-enter flex flex-col items-center rounded-[14px] border border-line/60 bg-surface px-3 py-3.5"
-            style={{ ['--ps-delay' as string]: '90ms' }}
-          >
-            <h2 className="self-start ps-eyebrow">维度雷达</h2>
-            <ScoreRadar axes={avgBreakdown} size={196} className="mt-1" />
-            <p className="mt-1 text-center text-[10px] leading-relaxed text-ink-faint">
-              本组平均，越靠外越强
-            </p>
-          </section>
+                  <div className="mt-1.5 flex gap-1.5">
+                    {distribution.map((bin) => (
+                      <span
+                        key={bin.label}
+                        className="flex-1 text-center text-[9px] tabular-nums text-ink-faint"
+                      >
+                        {bin.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center border-t border-line/50 px-3 py-4 md:border-t-0 md:border-l">
+                  <h2 className="self-start ps-eyebrow">维度雷达</h2>
+                  <ScoreRadar axes={avgBreakdown} size={178} className="mt-1" />
+                  <p className="mt-1 text-center text-[10px] leading-relaxed text-ink-faint">
+                    本组平均，越靠外越强
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center px-5 py-10 text-[11.5px] text-ink-faint">
+                再评几张照片，这里会长出分数分布和维度雷达
+              </div>
+            )}
           </div>
-        )}
+        </section>
 
         {/* 筛选与排序 */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -766,30 +767,5 @@ export default function ScorePage() {
         />
       )}
     </AppShell>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  hint,
-  delay = 0,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  delay?: number;
-}) {
-  return (
-    <div
-      className="ps-enter rounded-[14px] border border-line/60 bg-surface px-3.5 py-3"
-      style={{ ['--ps-delay' as string]: `${delay}ms` }}
-    >
-      <p className="ps-eyebrow">{label}</p>
-      <p className="mt-1.5 text-[24px] leading-none font-semibold tracking-[-0.02em] tabular-nums text-ink">
-        {value}
-      </p>
-      <p className="mt-1.5 text-[10.5px] text-ink-faint">{hint}</p>
-    </div>
   );
 }

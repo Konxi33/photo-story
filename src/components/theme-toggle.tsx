@@ -26,13 +26,16 @@ const LABEL: Record<ThemeMode, string> = {
 };
 
 export function ThemeToggle({ className }: { className?: string }): React.ReactElement {
-  const [appearance, setAppearance] = useState<Appearance>(() =>
-    typeof window === 'undefined' ? DEFAULT_APPEARANCE : readStoredAppearance(),
-  );
+  // 0.7.3：首帧必须和服务器渲染的一致，否则 React 判定水合失败（生产包里报 #418）。
+  // 之前这里在 useState 初始化里读 localStorage——服务端读不到、客户端读到了，
+  // 图标与 aria-label 对不上，于是每次打开都会抛一次并整棵树重渲。初值改回默认值，
+  // 挂载后再同步一次真实外观。
+  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
 
-  // 别的窗口/别的开关改了外观，这里跟着更新图标
+  // 挂载后同步 + 别的窗口/别的开关改了外观时跟着更新图标
   useEffect(() => {
     const sync = (): void => setAppearance(readStoredAppearance());
+    sync();
     window.addEventListener('storage', sync);
     window.addEventListener('ps:appearance-changed', sync);
     return () => {

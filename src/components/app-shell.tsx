@@ -38,6 +38,7 @@ import { moduleTagline } from '@/config/modules';
 import {
   DEFAULT_APPEARANCE,
   applyAppearance,
+  mirrorSidebarCookie,
   readStoredAppearance,
   resolveDark,
   type Appearance,
@@ -537,6 +538,8 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.documentElement.dataset.sidebar = compact ? 'compact' : 'expanded';
+    // 0.7.3：镜像到 cookie，下一次打开服务端就能把密度直接画进 HTML（省掉一次水合重画）
+    mirrorSidebarCookie(compact);
   }, [compact]);
 
   const blur = settings?.backgroundBlur ?? 14;
@@ -656,6 +659,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
               try {
                 window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
                 document.documentElement.dataset.sidebar = next ? 'compact' : 'expanded';
+                mirrorSidebarCookie(next);
               } catch {
                 // 忽略
               }
@@ -705,13 +709,14 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
               data-glass-bar
               className="sticky top-0 z-30 flex h-[var(--header-h)] items-center gap-3 px-5 md:px-8"
             >
-              {/* 当前位置：分组名当眉标，模块名当正文，替代过去空荡荡的顶栏 */}
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="hidden text-[10.5px] font-semibold tracking-[0.16em] text-ink-faint uppercase md:inline">
-                  {activeGroup}
+              {/* 当前位置：0.7.3 起做成面包屑 —— 组名是一枚小胶囊，页面名用衬线体，
+                  和页面里的大标题同一套语言，顶栏不再是一行灰字 */}
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="hidden md:inline-flex">
+                  <span className="ps-crumb">{activeGroup}</span>
                 </span>
-                <span className="hidden h-3 w-px bg-line/70 md:inline" />
-                <span className="truncate text-[13px] font-medium tracking-[-0.01em]">
+                <ChevronRight className="hidden h-3 w-3 shrink-0 text-ink-faint/60 md:block" />
+                <span className="ps-serif truncate text-[15px] leading-none tracking-[-0.005em] text-ink">
                   {activeNav?.label ?? APP_NAME}
                 </span>
               </div>
@@ -761,12 +766,21 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
                 <button
                   type="button"
                   onClick={() => setPaletteOpen(true)}
+                  title="搜索照片、页面、动作（Ctrl+K）"
+                  className="ps-search hidden md:inline-flex"
+                >
+                  <Search className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1 truncate text-left">搜索照片、页面、动作</span>
+                  <span className="ps-kbd shrink-0">Ctrl K</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
                   title="搜索或跳转（Ctrl+K）"
-                  className="ps-chip hidden h-8 gap-2 pr-1.5 pl-2.5 md:inline-flex"
+                  aria-label="搜索或跳转"
+                  className="ps-chip h-8 w-8 justify-center px-0 md:hidden"
                 >
                   <Search className="h-3.5 w-3.5" />
-                  <span className="text-[11.5px]">搜索 / 跳转</span>
-                  <span className="ps-kbd ml-1">Ctrl K</span>
                 </button>
                 {actions}
               </div>
