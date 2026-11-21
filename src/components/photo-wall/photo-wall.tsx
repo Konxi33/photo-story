@@ -52,6 +52,12 @@ export interface PhotoWallProps {
   onOpen: (index: number, rect: DOMRect) => void;
   onAddSelected: (ids: string[]) => void;
   className?: string;
+  /** 方块基础边长（宽屏）。0.7.2 起可在照片库里拖滑块调，默认 208 */
+  tileBase?: number;
+  /** 让墙面撑满父容器（照片库改成满屏工作台后用它，不再用固定 clamp 高度） */
+  fill?: boolean;
+  /** 是否在墙面左上角浮一枚用法胶囊（默认不出，页面顶部已有图标提示） */
+  hint?: boolean;
 }
 
 /** 照片均匀铺成一个 cols × rows 的世界平面。 */
@@ -69,7 +75,13 @@ function makeNode(tile: number): WallNode {
 
   const img = document.createElement('img');
   img.className = 'ps-wall-img';
-  img.loading = 'lazy';
+  /*
+   * 0.7.2：这里原来是 loading='lazy'。
+   * 方块是靠 transform 挪到世界坐标上的，浏览器判断「在不在视口」时对变换后的
+   * 位置并不总是及时更新，于是刚进照片库时常出现「一圈空框，拖一下才出图」。
+   * 解码并发已经由 preview-cache 限到 10，这里直接 eager 更稳。
+   */
+  img.loading = 'eager';
   img.decoding = 'async';
   img.draggable = false;
   img.alt = '';
@@ -89,7 +101,14 @@ function makeNode(tile: number): WallNode {
   const badge = document.createElement('div');
   badge.className = 'ps-wall-badge';
 
-  el.append(img, cover, veil, cap, ring, badge);
+  /*
+   * 0.7.2 修「照片全是空白」的真凶：
+   * 这几层原来按 img → cover 的顺序塞进方块，而 `.ps-wall-cover` 是一层
+   * 近乎不透明的浅色渐变（它本来只是「图还没解码时」的占位）。DOM 顺序一错，
+   * 它就盖在照片上面 —— 图片解码得好好的（naturalWidth 640、complete true），
+   * 屏幕上却只剩一块淡淡的米色。占位层必须在图片**下面**。
+   */
+  el.append(cover, img, veil, cap, ring, badge);
   el.style.transform = 'translate3d(-9999px, -9999px, 0) scale(1)';
   el.style.opacity = '0';
   return { el, img, cap, badge, pid: null, k: 1, o: 1, sx: -9999, sy: -9999, sk: 1, so: 0 };
@@ -100,7 +119,15 @@ function resizeNode(node: WallNode, tile: number): void {
   node.el.style.height = `${tile}px`;
 }
 
-export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWallProps) {
+export function PhotoWall({
+  photos,
+  onOpen,
+  onAddSelected,
+  className,
+  tileBase = TILE_WIDE,
+  fill = false,
+  hint = false,
+}: PhotoWallProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [immersive, setImmersive] = useState(false);
 
@@ -111,6 +138,8 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
 
   const sizeRef = useRef({ w: 0, h: 0 });
   const tileRef = useRef(TILE_WIDE);
+  // 0.7.2：方块尺寸可以由用户拖滑块调；窄屏按同一比例缩小，保持「一面墙」的观感
+  const baseRef = useRef(tileBase);
   const layoutRef = useRef<WallLayout>(layoutFor(photos.length));
   const photosRef = useRef<Photo[]>(photos);
   const indexRef = useRef<Map<string, number>>(new Map(photos.map((p, i) => [p.id, i])));
@@ -352,6 +381,30 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
 
   /* ------------------------------- 生命周期 ------------------------------- */
 
+  /**
+   * 0.7.2：把整面墙摆到舞台正中。
+   *
+   * 之前 pan 初值是 (0,0)，等于「世界原点贴在舞台左上角」，所以二十张照片
+   * 全挤在左上角、右下大半张舞台是空的点阵 —— 观感上像「照片墙没加载出来」。
+   * 现在按内容尺寸算一次居中偏移；拖动之后就不再自动回中。
+   */
+  const centerPan = useCallback(() => {
+    const { w, h } = sizeRef.current;
+    const tile = tileRef.current;
+    const cell = tile + GAP;
+    const { cols, rows } = layoutRef.current;
+    /**
+     * 居中之后再对齐到格子步长：不然舞台上下两条边会各切掉半排照片，
+     * 顶部看起来像一条深色的「脏边」。按 cell 取整后，方块的边界正好落在
+     * 舞台边上，四边都是完整的一排。
+     */
+    panRef.current = {
+      x: Math.round((((cols - 1) * cell + tile) / 2 - w / 2) / cell) * cell,
+      y: Math.round((((rows - 1) * cell + tile) / 2 - h / 2) / cell) * cell,
+    };
+    velRef.current = { x: 0, y: 0 };
+  }, []);
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -360,12 +413,20 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
     const apply = () => {
       const w = stage.clientWidth;
       const h = stage.clientHeight;
+      const prevW = sizeRef.current.w;
       sizeRef.current = { w, h };
-      const tile = w > 0 && w < NARROW_MAX ? TILE_NARROW : TILE_WIDE;
+      const narrow = w > 0 && w < NARROW_MAX;
+      // 窄屏用比宽屏更小的间距比例，但跟随用户选的尺寸一起缩放
+      const scaled = narrow
+        ? Math.max(84, Math.round((baseRef.current * TILE_NARROW) / TILE_WIDE))
+        : Math.round(baseRef.current);
+      const tile = scaled;
       if (Math.abs(tile - tileRef.current) > 0.5) {
         tileRef.current = tile;
         for (const node of nodesRef.current) resizeNode(node, tile);
       }
+      // 首次量到尺寸（或从 0 变到有尺寸）：居中一次
+      if (prevW === 0 && w > 0) centerPan();
       drawRef.current();
     };
 
@@ -377,14 +438,32 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, []);
+  }, [centerPan]);
+
+  /**
+   * 0.7.2：滑块改了方块尺寸 —— 已挂上的方块一起改，并立刻重画一帧。
+   * 不做动画：方块是被 transform 摆位的一格格，缩放过程中插值会互相穿过，
+   * 直接「啪」地重排更像换了一块更疏/更密的墙。
+   */
+  useEffect(() => {
+    baseRef.current = tileBase;
+    const stage = stageRef.current;
+    const narrow = stage ? stage.clientWidth > 0 && stage.clientWidth < NARROW_MAX : false;
+    const tile = narrow
+      ? Math.max(84, Math.round((tileBase * TILE_NARROW) / TILE_WIDE))
+      : Math.round(tileBase);
+    if (Math.abs(tile - tileRef.current) <= 0.5) return;
+    tileRef.current = tile;
+    for (const node of nodesRef.current) resizeNode(node, tile);
+    centerPan();
+    drawRef.current();
+  }, [tileBase, centerPan]);
 
   useEffect(() => {
     photosRef.current = photos;
     layoutRef.current = layoutFor(photos.length);
     indexRef.current = new Map(photos.map((p, i) => [p.id, i]));
-    panRef.current = { x: 0, y: 0 };
-    velRef.current = { x: 0, y: 0 };
+    centerPan();
     for (const node of nodesRef.current) {
       node.pid = null;
       node.el.dataset.photoId = '';
@@ -397,7 +476,7 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
     });
     drawRef.current();
     prefetch();
-  }, [photos, prefetch]);
+  }, [photos, prefetch, centerPan]);
 
   useEffect(() => {
     const set = new Set(selected);
@@ -554,13 +633,15 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
   };
 
   const resetPan = () => {
-    panRef.current = { x: 0, y: 0 };
-    velRef.current = { x: 0, y: 0 };
+    // 0.7.2：回到起点 = 回到「摆正中」的那一屏，而不是世界的左上角
+    centerPan();
     ensure();
   };
 
   return (
-    <div className={`ps-wall${immersive ? ' ps-wall--immersive' : ''}${className ? ` ${className}` : ''}`}>
+    <div
+      className={`ps-wall${immersive ? ' ps-wall--immersive' : ''}${fill ? ' ps-wall--fill' : ''}${className ? ` ${className}` : ''}`}
+    >
       <div
         ref={stageRef}
         className="ps-wall-stage"
@@ -573,15 +654,21 @@ export function PhotoWall({ photos, onOpen, onAddSelected, className }: PhotoWal
         onDoubleClick={onDoubleClick}
       />
 
-      <div className="ps-wall-hint" data-wall-ui="">
-        按住拖动 · 松手滑行 · 双击看大图
-      </div>
+      {/* 0.7.2：这枚「按住拖动 · 松手滑行 · 双击看大图」的胶囊原来压在照片上，
+          而页首已经有一排带图标的用法提示了 —— 同一句话讲两遍，还挡图。
+          现在只在外部明确要（hint）时才出。 */}
+      {hint && (
+        <div className="ps-wall-hint" data-wall-ui="">
+          按住拖动 · 松手滑行 · 双击看大图
+        </div>
+      )}
 
+      {/* 0.7.2：照片库顶部已经写了「20 / 共 20 张」，这枚 HUD 平时什么都不显示，
+          只在你按住 Ctrl 选了照片时才浮出来（否则它压在墙上像一个多余的标签）。 */}
       <div className="ps-wall-hud" data-wall-ui="">
-        <span className="ps-wall-hud-item">共 {photos.length} 张</span>
-        <span className={`ps-wall-hud-item${selected.length > 0 ? ' is-on' : ''}`}>
-          已选 {selected.length} 张
-        </span>
+        {selected.length === 0 ? null : (
+          <span className="ps-wall-hud-item is-on">已选 {selected.length} 张</span>
+        )}
         {selected.length > 0 && (
           <>
             <button

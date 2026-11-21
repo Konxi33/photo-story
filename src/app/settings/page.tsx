@@ -503,6 +503,16 @@ export default function SettingsPage() {
       };
       await KvRepository.set(STORAGE_KEY_APP_SETTINGS, appSettings);
 
+      /*
+       * 0.7.2：通知外壳「设置变了」。
+       * AppShell 是每个页面各挂一份、只在挂载时读一次 kv 的，所以以前改完
+       * 「功能栏悬浮展开」必须切一次页面才生效（用户反馈的原话）。
+       * 这里把完整设置派发出去，外壳立刻重渲染，界面马上变。
+       */
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ps:settings-saved', { detail: appSettings }));
+      }
+
       const fresh = (await fetch(API_ROUTES.settings, { cache: 'no-store' }).then((r) =>
         r.json(),
       )) as AiConfigPublic;

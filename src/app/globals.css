@@ -254,7 +254,11 @@
       radial-gradient(1100px 520px at 4% -14%, rgba(38, 38, 48, 0.9) 0%, transparent 60%),
       radial-gradient(900px 460px at 100% -6%, rgba(224, 138, 87, 0.14) 0%, transparent 56%),
       radial-gradient(760px 440px at 46% 112%, rgba(47, 88, 117, 0.16) 0%, transparent 60%),
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.5'/></svg>");
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.14'/></svg>");
+    /* 0.7.2：深色下噪点原来跟浅色用同一张、还开到 0.5 不透明度，等于在近黑底上
+       撒了一层白灰 —— 用户描述成「深色界面很多噪点」。深色只需要极轻的一层质感：
+       不透明度降到 0.14，再用 soft-light 混进去，只在暗部边缘留一点点颗粒。 */
+    background-blend-mode: normal, normal, normal, soft-light;
   }
 
   /* 0.5.1：顶栏改为 sticky，需要自带一层与页面底色一致的半透明底，否则内容会从下面透出来 */
@@ -857,6 +861,106 @@ html[data-motion='drift'] .ps-drift-slow {
   overflow-x: clip;
 }
 
+/* ==========================================================================
+ * 0.7.2 动效系统：滚动进场 / 内容错峰 / 卡片浮起 / 路由进度条
+ *
+ * 目标不是「到处都在动」，而是让眼睛每到一页都知道「东西是从下面长出来的」。
+ * 全部只用 transform + opacity（合成器属性），不碰 layout / paint。
+ * ========================================================================== */
+
+@keyframes ps-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 滚动进场（渐进增强）：
+   Chromium 115+ 支持 `animation-timeline: view()`，元素按自己在视口里的
+   进入进度播放动画；不支持的浏览器直接看到终态，不会「卡在半透明」。 */
+@supports (animation-timeline: view()) {
+  .ps-reveal {
+    animation: ps-rise-in linear both;
+    animation-timeline: view();
+    animation-range: entry 6% cover 28%;
+  }
+}
+
+/* 内容错峰：一屏里的一组块依次长出来（最多 8 个，再多就一起出） */
+.ps-stagger > * {
+  animation: ps-rise-in 440ms var(--ease-out) backwards;
+}
+.ps-stagger > *:nth-child(1) {
+  animation-delay: 30ms;
+}
+.ps-stagger > *:nth-child(2) {
+  animation-delay: 80ms;
+}
+.ps-stagger > *:nth-child(3) {
+  animation-delay: 130ms;
+}
+.ps-stagger > *:nth-child(4) {
+  animation-delay: 180ms;
+}
+.ps-stagger > *:nth-child(5) {
+  animation-delay: 225ms;
+}
+.ps-stagger > *:nth-child(6) {
+  animation-delay: 265ms;
+}
+.ps-stagger > *:nth-child(7) {
+  animation-delay: 300ms;
+}
+.ps-stagger > *:nth-child(n + 8) {
+  animation-delay: 330ms;
+}
+
+/* 卡片：抬起一指的高度 + 一层更暖的影（用在项目卡、工具卡、评分卡上） */
+.ps-lift {
+  transition:
+    transform 260ms var(--ease-spring),
+    box-shadow 260ms var(--ease-out),
+    border-color 200ms linear;
+  will-change: auto;
+}
+.ps-lift:hover {
+  transform: translate3d(0, -2px, 0);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 14px 30px -18px rgb(52 34 24 / 0.35);
+}
+.ps-lift:active {
+  transform: translate3d(0, 0, 0) scale(0.998);
+}
+
+/* 路由进度条：切页时内容区顶上划过一道陶土色细线，
+   让「正在进入下一页」这件事有反馈（内容本身已经有滑入动画）。 */
+@keyframes ps-route-run {
+  0% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  70% {
+    transform: scaleX(0.86);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+.ps-route-bar {
+  transform-origin: left center;
+  animation: ps-route-run 620ms var(--ease-out) forwards;
+}
+
 /* 照片库：以悬停照片为圆心向四周扩散衰减。
    0.5.2：只动 transform / box-shadow（合成器属性），
    不再逐个元素改 filter —— 9 张照片同时改 brightness 会触发整层重绘。 */
@@ -1166,7 +1270,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  height: 2.25rem;
+  /* 0.7.2：2.25rem → 2rem。侧栏一共 12 个入口（四组），按 36px 排会多出半行，
+     最下面的「更新日志」被切在缝里，看起来像漏渲染。32px 一屏正好放得下。 */
+  height: 2rem;
   padding-inline: 0.625rem;
   border-radius: 0.75rem;
   font-size: 13px;
@@ -1323,6 +1429,15 @@ body {
 /* 细滚动条（横向项目轨、照片库通用） */
 .ps-scroll-thin {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 200ms linear;
+}
+
+/* 0.7.2：滚动条平时藏起来，鼠标进到这块区域才浮现。
+   侧栏那条常驻的竖条会一路压到「设置」旁边的空白，看起来像多出一个小滑条
+   （用户说的「小滑条重叠」有一半来自它）。 */
+.ps-scroll-thin:hover,
+.ps-scroll-thin:focus-within {
   scrollbar-color: color-mix(in srgb, var(--color-ink) 18%, transparent) transparent;
 }
 
@@ -1333,6 +1448,12 @@ body {
 
 .ps-scroll-thin::-webkit-scrollbar-thumb {
   border-radius: 999px;
+  background-color: transparent;
+  transition: background-color 200ms linear;
+}
+
+.ps-scroll-thin:hover::-webkit-scrollbar-thumb,
+.ps-scroll-thin:focus-within::-webkit-scrollbar-thumb {
   background-color: color-mix(in srgb, var(--color-ink) 16%, transparent);
 }
 
@@ -1375,6 +1496,12 @@ body {
      不会连带影响祖先的重绘范围。 */
   will-change: transform;
   contain: paint;
+}
+
+/* 0.7.2：深色底下这圈 conic 渐变的暗段几乎和背景同色，亮段却发灰，
+   看上去像一道脏弧。压到四成，保留「转动的光圈」这个意思就够。 */
+[data-theme='dark'] .ps-aperture {
+  opacity: 0.4;
 }
 
 /* ------------------------------ 入场动效 ------------------------------ */
@@ -1525,6 +1652,13 @@ html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-lab
   background: var(--wall-paper);
   box-shadow: var(--elev-1);
   isolation: isolate;
+}
+
+/* 0.7.2：照片库改成「满屏工作台」——墙面直接吃满剩余高度（父容器给多高就多高），
+   不再用 `100dvh - 340px` 去猜上面那一堆控件有多高。 */
+.ps-wall--fill {
+  height: 100%;
+  min-height: 0;
 }
 
 .ps-wall--immersive {
@@ -1964,6 +2098,66 @@ html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-lab
 .ps-drop-bad {
   border: 1.5px dashed rgb(225 29 72 / 0.85);
   background: rgb(244 63 94 / 0.1);
+}
+
+/* 0.7.2：范围滑块（照片墙方块大小等）。
+   原生 range 在 Chromium 里长得又细又灰，跟这套纸面/陶土的观感完全不搭，
+   这里把轨道和拖动头都重画一遍：轨道 4px 圆角细槽，头是一个带描边的实心圆，
+   按下时描边扩一圈 —— 给「在调一样东西」一个明确的手感。 */
+.ps-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ps-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.ps-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: var(--copper);
+  border: 2px solid var(--color-paper);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+  transition:
+    transform var(--dur-2) var(--ease-spring),
+    box-shadow var(--dur-2) var(--ease-out);
+}
+
+.ps-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+.ps-slider:active::-webkit-slider-thumb {
+  transform: scale(1.24);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--copper) 22%, transparent);
+}
+
+.ps-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--copper) 30%, transparent);
+}
+
+.ps-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.ps-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--copper);
+  border: 2px solid var(--color-paper);
 }
 
 @media (prefers-reduced-motion: reduce) {

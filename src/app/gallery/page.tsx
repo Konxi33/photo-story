@@ -12,7 +12,6 @@ import { toast } from 'sonner';
 
 import { AppShell } from '@/components/app-shell';
 import { ModuleGuide } from '@/components/module-guide';
-import { PageHero } from '@/components/page-hero';
 import { PhotoWall } from '@/components/photo-wall/photo-wall';
 import { loadPreview, peekPreview } from '@/components/photo-wall/preview-cache';
 import { PhotoStoryPreview } from '@/components/workbench/PhotoStoryPreview';
@@ -43,6 +42,15 @@ type SortKey = 'added' | 'taken';
  */
 type GalleryView = 'wall' | 'grid';
 const VIEW_STORAGE_KEY = 'ps:gallery-view';
+
+/**
+ * 0.7.2：照片墙方块大小可调。
+ * 原来方块边长写死 208 / 126 两档，用户反馈「不能调节照片墙大小」——
+ * 现在给一条滑条，范围与当前值都存在 localStorage。
+ */
+const WALL_SIZE_KEY = 'ps:wall-size';
+const WALL_MIN = 120;
+const WALL_MAX = 300;
 
 const SORT_LABELS: Record<SortKey, string> = {
   added: '添加时间',
@@ -79,13 +87,27 @@ export default function GalleryPage() {
   // 点开照片时记下缩略图在屏幕上的位置，预览层从这一块放大出来（FLIP）
   const [previewOrigin, setPreviewOrigin] = useState<ScreenRect | null>(null);
   const [view, setView] = useState<GalleryView>('wall');
+  const [tileSize, setTileSize] = useState<number>(200);
 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
       if (saved === 'grid' || saved === 'wall') setView(saved);
+      // 0.7.2：方块大小也沿用上次的选择
+      const size = Number(window.localStorage.getItem(WALL_SIZE_KEY));
+      if (Number.isFinite(size) && size >= WALL_MIN && size <= WALL_MAX) setTileSize(size);
     } catch {
       // 隐私模式下拿不到 localStorage，用默认的墙
+    }
+  }, []);
+
+  const changeTileSize = useCallback((next: number) => {
+    const clamped = Math.min(WALL_MAX, Math.max(WALL_MIN, Math.round(next)));
+    setTileSize(clamped);
+    try {
+      window.localStorage.setItem(WALL_SIZE_KEY, String(clamped));
+    } catch {
+      // 存不上不影响本次使用
     }
   }, []);
 
@@ -292,30 +314,39 @@ export default function GalleryPage() {
         </div>
       }
     >
-      <div className="px-5 py-8 md:px-8">
-        <PageHero
-          eyebrow="Gallery"
-          title="照片库"
-          meta={items === null ? '读取中…' : `${visible.length} / ${items.length} 张`}
-          description="所有项目的照片铺在同一面墙上：按住就能拖，像推一块冰；滚轮缩放，双击看照片与文字。"
-          className="mb-5"
-        />
-
-        {/* 0.7.1：照片墙才是这一页的主角，说明书不能默认摊开把墙面挤到屏幕外
-            （实测摊开占 251px，墙面只剩 198px 可见；收起后是一枚 chip） */}
-        <ModuleGuide moduleId="gallery" autoOpen={false} className="mb-5" />
-
-        {/* 0.7.1：墙面怎么用，用图标说清楚，不再堆一行小字 */}
-        {view === 'wall' && (
-          <div className="mb-4 flex flex-wrap items-center gap-1.5">
-            <WallHint icon={Hand} text="按住拖动" />
-            <WallHint icon={Mouse} text="滚轮缩放" />
-            <WallHint icon={Maximize2} text="双击看大图" />
+      {/* 0.7.2：照片库改成「满屏工作台」——整页不滚，墙面吃满剩余高度。
+          以前这一页是普通文档流：页首 + 说明书 + 分类 + 排序把墙推下去，
+          墙面只有 198–509px 露在屏幕里，看起来就像「照片墙是空的」。 */}
+      <div className="flex h-[calc(100dvh-var(--header-h))] min-h-0 flex-col px-5 pt-4 pb-4 md:px-8">
+        {/* 紧凑页首：一行说完「这是什么 + 有几张」 */}
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            <p className="ps-cap">Gallery</p>
+            <h1 className="ps-serif ps-display mt-1.5 text-[26px] leading-[1.05] tracking-[0.01em] text-ink">
+              照片库
+            </h1>
           </div>
-        )}
+          <p className="ps-num pb-1 text-[11.5px] text-ink-faint">
+            {items === null ? '读取中…' : `${visible.length} / ${items.length} 张`}
+            <span className="mx-2 text-line">|</span>
+            按住拖动 · 双击看大图
+          </p>
+        </div>
+
+        {/* 说明书（收起态是一枚 chip）+ 用法提示，合并成一行，不再各占一段 */}
+        <div className="mt-3 mb-3 flex flex-wrap items-center gap-1.5">
+          <ModuleGuide moduleId="gallery" autoOpen={false} />
+          {view === 'wall' && (
+            <>
+              <WallHint icon={Hand} text="按住拖动" />
+              <WallHint icon={Mouse} text="滚轮缩放" />
+              <WallHint icon={Maximize2} text="双击看大图" />
+            </>
+          )}
+        </div>
 
         {/* 分类：横向可滚动 + 两端渐隐 */}
-        <div className="ps-edge-fade -mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-1 ps-no-scrollbar">
+        <div className="ps-edge-fade -mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1 ps-no-scrollbar">
           <CategoryChip
             active={category === 'all'}
             onClick={() => setCategory('all')}
@@ -338,7 +369,7 @@ export default function GalleryPage() {
         </div>
 
         {/* 排序 */}
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <Segmented
             size="sm"
             ariaLabel="排序方式"
@@ -367,9 +398,30 @@ export default function GalleryPage() {
             )}
           </button>
 
+          {/* 0.7.2：方块大小。照片墙的疏密应该由人决定，而不是写死 208px */}
+          {view === 'wall' && (
+            <label className="ml-auto flex items-center gap-2 text-[11.5px] text-ink-faint">
+              <span className="hidden sm:inline">方块</span>
+              <input
+                type="range"
+                min={WALL_MIN}
+                max={WALL_MAX}
+                step={4}
+                value={tileSize}
+                onChange={(e) => changeTileSize(Number(e.target.value))}
+                aria-label="照片墙方块大小"
+                className="ps-slider w-24 sm:w-32"
+              />
+              <span className="w-7 text-right tabular-nums">{tileSize}</span>
+            </label>
+          )}
+
           {/* 视图切换：照片墙（0.7 新玩法）/ 网格（原来那种） */}
           <div
-            className="ml-auto flex items-center gap-0.5 rounded-full border border-line/60 bg-surface-2/70 p-0.5"
+            className={cn(
+              'flex items-center gap-0.5 rounded-full border border-line/60 bg-surface-2/70 p-0.5',
+              view !== 'wall' && 'ml-auto',
+            )}
             role="group"
             aria-label="照片展示方式"
           >
@@ -400,7 +452,7 @@ export default function GalleryPage() {
         </div>
 
         {items === null ? (
-          <div className="ps-wall">
+          <div className="ps-wall ps-wall--fill">
             <div className="flex h-full flex-wrap content-start gap-3 overflow-hidden p-4">
               {Array.from({ length: 30 }).map((_, i) => (
                 <div key={i} className="ps-skeleton h-[150px] w-[150px] rounded-[11px]" />
@@ -430,9 +482,17 @@ export default function GalleryPage() {
             )}
           </div>
         ) : view === 'wall' ? (
-          <PhotoWall photos={photos} onOpen={openPreview} onAddSelected={(ids) => void addSelection(ids)} />
+          <div className="relative min-h-0 flex-1">
+            <PhotoWall
+              photos={photos}
+              onOpen={openPreview}
+              onAddSelected={(ids) => void addSelection(ids)}
+              tileBase={tileSize}
+              fill
+            />
+          </div>
         ) : (
-          <div className="ps-enter grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="ps-enter grid h-full min-h-0 grid-cols-2 gap-3 overflow-y-auto pb-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {visible.map((item, index) => (
               <GalleryTile
                 key={item.photo.id}

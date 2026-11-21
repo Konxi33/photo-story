@@ -53,17 +53,20 @@ export function PageHero({
         <div className="min-w-0 flex-1">
           {(eyebrow || index) && (
             <p className="flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="h-[3px] w-6 rounded-full bg-gradient-to-r from-copper to-copper/25"
-              />
-              {index && (
-                <span className="text-[10px] font-semibold tracking-[0.18em] text-copper/80 tabular-nums">
+              {/* 0.7.2：序号从小字改成一枚铜色方章 —— 印刷书里章节号的常见处理，
+                  也让每页开头有个明确的小锚点 */}
+              {index ? (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] bg-copper/12 px-1 text-[10px] font-semibold tracking-[0.08em] text-copper tabular-nums">
                   {index}
                 </span>
+              ) : (
+                <span
+                  aria-hidden
+                  className="h-[3px] w-6 rounded-full bg-gradient-to-r from-copper to-copper/25"
+                />
               )}
               {eyebrow && (
-                <span className="text-[10.5px] font-medium tracking-[0.18em] text-ink-faint uppercase">
+                <span className="text-[10.5px] font-medium tracking-[0.2em] text-ink-faint uppercase">
                   {eyebrow}
                 </span>
               )}
@@ -71,16 +74,19 @@ export function PageHero({
           )}
 
           <div className="mt-3 flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5">
-            <h1 className="ps-display text-[clamp(26px,3.1vw,40px)] leading-[1.06] tracking-[-0.02em] text-ink">
+            {/* 0.7.2：标题换成衬线展示体。0.7.0/0.7.1 用的还是无衬线正文体，
+                每页第一眼跟卡片标题分不出层级；换成衬线后，「页”与「块」的
+                区别一眼就出来了，也更像一本书的章节页。 */}
+            <h1 className="ps-serif ps-display text-[clamp(28px,3.4vw,44px)] leading-[1.02] tracking-[0.01em] text-ink">
               {title}
             </h1>
             {meta && (
-              <span className="ps-num shrink-0 pb-1 text-[11.5px] text-ink-faint">{meta}</span>
+              <span className="ps-num shrink-0 pb-1.5 text-[11.5px] text-ink-faint">{meta}</span>
             )}
           </div>
 
           {description && (
-            <p className="mt-3 max-w-[52rem] text-[12.5px] leading-[1.78] text-ink-mid">
+            <p className="mt-3.5 max-w-[46rem] text-[12.5px] leading-[1.8] text-ink-mid">
               {description}
             </p>
           )}

@@ -117,6 +117,16 @@ interface IndicatorGeom extends IndicatorPos {
 
 let lastIndicatorValue: (IndicatorPos & { compact: boolean }) | null = null;
 
+/**
+ * 0.7.2：侧栏滚动位置。
+ *
+ * 每个页面各自渲染一个 <AppShell>，导航时整个侧栏卸载重建，滚动容器自然回到顶部 ——
+ * 表现就是用户说的「往下滑，点一下更新日志，侧栏瞬间弹回最上面」。
+ * 位置记在模块级变量里（跟指示条的 lastIndicatorValue 同一套思路），
+ * 重挂载后由 SidebarContent 在测量之前恢复。
+ */
+let lastSidebarScroll = 0;
+
 function readLastIndicator(compact: boolean): IndicatorPos | null {
   if (!lastIndicatorValue) return null;
   if (lastIndicatorValue.compact !== compact) return null;
@@ -236,6 +246,45 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         // 忽略
       }
     })();
+  }, []);
+
+  /**
+   * 0.7.2：设置页点了「保存设置」之后要立刻生效。
+   *
+   * 以前 AppShell 只在挂载时读一次 kv，所以在设置里把「功能栏」改成悬浮展开、
+   * 或者改字体/玻璃，都要切一次页面（= 侧栏重新挂载）才看得见 —— 用户反馈的
+   * 「改了点保存不生效，必须来回切界面」就是这条。
+   * 现在设置页保存后派发 ps:settings-saved（detail 是完整设置），这里接住重渲染。
+   */
+  useEffect(() => {
+    const onSaved = (event: Event): void => {
+      const next = (event as CustomEvent<AppSettings | undefined>).detail;
+      if (!next) return;
+      setSettings(next);
+      if (
+        typeof next.sidebarCollapsed === 'boolean' &&
+        window.localStorage.getItem(COLLAPSE_KEY) === null
+      ) {
+        setCollapsed(next.sidebarCollapsed);
+      }
+      setAppearance((prev) => {
+        const merged: Appearance = {
+          ...prev,
+          glass: next.glass ?? prev.glass,
+          glassBlur: next.glassBlur ?? prev.glassBlur,
+          fontFamily: next.fontFamily ?? prev.fontFamily,
+          themeMode: next.themeMode ?? prev.themeMode,
+        };
+        const resolved: Appearance = {
+          ...merged,
+          darkMode: resolveDark(merged.themeMode, prev.darkMode),
+        };
+        applyAppearance(resolved);
+        return resolved;
+      });
+    };
+    window.addEventListener('ps:settings-saved', onSaved as EventListener);
+    return () => window.removeEventListener('ps:settings-saved', onSaved as EventListener);
   }, []);
 
   // 0.6.1：启动页 —— 记下上次停在哪个页面，并按设置决定一开始落在哪
@@ -628,15 +677,28 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         </aside>
       )}
 
-      {/* 内容：给浮动侧栏让位（侧栏是浮起来的，所以要让出「栏宽 + 两侧空隙」） */}
+      {/* 内容：给浮动侧栏让位（侧栏是浮起来的，所以要让出「栏宽 + 两侧空隙」）。
+          0.7.2：「悬浮展开」模式下侧栏是浮在内容之上的抽屉，不该再占位 ——
+          以前这里不管哪种模式都按栏宽留白，于是选了「悬浮展开」看起来跟
+          「一直展开」一模一样（用户反馈「改了点保存不生效」的一半原因）。 */}
       <div
         className={cn(
           'relative min-w-0 transition-[padding] duration-[360ms] ease-[var(--ease-out)]',
-          compact
-            ? 'md:pl-[calc(var(--rail-w-compact)+var(--shell-gap)*2)]'
-            : 'md:pl-[calc(var(--rail-w)+var(--shell-gap)*2)]',
+          hoverSidebar
+            ? 'md:pl-0'
+            : compact
+              ? 'md:pl-[calc(var(--rail-w-compact)+var(--shell-gap)*2)]'
+              : 'md:pl-[calc(var(--rail-w)+var(--shell-gap)*2)]',
         )}
       >
+        {/* 0.7.2：切页时这里划过一道陶土细线 —— 内容本身有滑入动画，
+            但顶上一道 2px 的进度线能让「正在进入下一处」更有交代。 */}
+        <div
+          key={pathname}
+          aria-hidden
+          className="ps-route-bar pointer-events-none absolute top-0 right-0 left-0 z-40 h-[2px] bg-gradient-to-r from-copper/0 via-copper/80 to-copper/0"
+        />
+
         {showTopBar && (
           <>
             <header
@@ -770,6 +832,20 @@ function SidebarContent({
     [...FLAT, SETTINGS_ITEM].find(
       (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
     )?.href ?? '';
+
+  /**
+   * 0.7.2：换页后把侧栏的滚动位置还原。
+   *
+   * declared 在指示条那个 effect 之前 —— 顺序很重要：指示条要量 item 的视口坐标，
+   * 必须等滚动位置先复原，否则量到的是「顶部那一屏」的坐标，条会先闪一下再跳。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (lastSidebarScroll > 0 && el.scrollHeight > el.clientHeight) {
+      el.scrollTop = lastSidebarScroll;
+    }
+  }, []);
 
   /**
    * 0.4.2：滑条改成 WAAPI（element.animate）。
@@ -940,6 +1016,8 @@ function SidebarContent({
     };
 
     const onScroll = (): void => {
+      // 0.7.2：记住位置，换页重挂载后能回到原处（见 lastSidebarScroll 的注释）
+      if (scrollable) lastSidebarScroll = scrollable.scrollTop;
       // 上面 reveal 造成的那一次 scroll 事件：只落位，不进「滚动态」
       if (performance.now() < selfScrollUntil) {
         render(measure());
@@ -973,6 +1051,27 @@ function SidebarContent({
       const distance = Math.abs(target.top - from.top);
       const movingUp = target.top < from.top;
 
+      /*
+       * 0.7.2：跨度很大（导航列表 ↔ 底部「设置」那一段）时不滑过去，改成原地换位。
+       * 让条一路滑过十几个导航项，视觉上就是「条从别人身上压过去」，用户描述成
+       * 「点设置的时候小滑块会重叠」。淡出 + 新位置弹入更干净，也更像「选中了另一块」。
+       */
+      if (distance > 120) {
+        render(target);
+        bar.animate(
+          [
+            { transform: `translateY(${target.top}px)`, height: `${target.height}px`, opacity: 0 },
+            {
+              transform: `translateY(${target.top}px)`,
+              height: `${target.height}px`,
+              opacity: 1,
+              offset: 1,
+            },
+          ],
+          { duration: 200, easing: 'cubic-bezier(0.34, 1.32, 0.64, 1)' },
+        );
+      } else {
+
       // 拉丝：起点与终点之间短暂连成一条，长度封顶，避免盖住底部「本地存储」
       const extra = Math.min(distance * 0.28, 22);
       const top = Math.min(from.top, target.top) - (movingUp ? extra * 0.5 : 0);
@@ -1005,6 +1104,7 @@ function SidebarContent({
         ],
         { duration, easing: 'linear', fill: 'none' },
       );
+      }
     }
 
     // 校正一：动画结束后（含动画期间发生的漂移）再对一次
@@ -1121,12 +1221,12 @@ function SidebarContent({
       <div
         ref={scrollRef}
         data-sidebar-scroll
-        className="ps-scroll-thin relative grid min-h-0 flex-1 gap-5 overflow-y-auto pr-1 pl-[7px]"
+        className="ps-scroll-thin relative grid min-h-0 flex-1 gap-3 overflow-y-auto pr-1 pl-[7px]"
       >
         {GROUPS.map((group) => (
-          <div key={group.title} className="grid gap-0.5">
+          <div key={group.title} className="grid gap-0">
             {!compact && (
-              <p data-sidebar-label className="ps-cap px-2.5 pb-2">
+              <p data-sidebar-label className="ps-cap px-2.5 pb-1.5">
                 {group.title}
               </p>
             )}
@@ -1163,30 +1263,47 @@ function SidebarContent({
 
         {!compact && (
           <div className="grid gap-1.5 px-2.5 pb-1">
-            {usage && usage.quota > 0 && (
-              <div
-                className="grid gap-1.5"
-                title={`${formatBytes(usage.usage)} / ${formatBytes(usage.quota)}`}
-              >
-                <div className="flex items-center justify-between text-[10.5px] text-ink-faint">
-                  <span className="flex items-center gap-1">
-                    <HardDrive className="h-3 w-3" />
-                    {formatBytes(usage.usage)}
-                  </span>
-                  <span className="tabular-nums">
-                    {Math.round((usage.usage / usage.quota) * 100)}%
-                  </span>
+            {/* 0.7.2：这一块是异步查出来的（IndexedDB 用量），以前查到之后凭空长高
+                24px，把上面的「设置」连同整组导航一起往上顶 —— 用户看到的就是
+                「点别的页面时，下面设置那一坨会跳一下」。现在坑位先占好，
+                数据到了只是把内容填进去，高度不变。 */}
+            <div className="grid min-h-[26px] content-center gap-1.5">
+              {usage && usage.quota > 0 ? (
+                <div
+                  className="grid gap-1.5"
+                  title={`${formatBytes(usage.usage)} / ${formatBytes(usage.quota)}`}
+                >
+                  <div className="flex items-center justify-between text-[10.5px] text-ink-faint">
+                    <span className="flex items-center gap-1">
+                      <HardDrive className="h-3 w-3" />
+                      {formatBytes(usage.usage)}
+                    </span>
+                    <span className="tabular-nums">
+                      {/* 0.7.2：占用不到 1% 时别显示「0%」——那是废话，还让人以为进度条坏了 */}
+                      {usage.usage / usage.quota < 0.01
+                        ? `余 ${formatBytes(usage.quota - usage.usage)}`
+                        : `${Math.round((usage.usage / usage.quota) * 100)}%`}
+                    </span>
+                  </div>
+                  <div className="h-[3px] w-full overflow-hidden rounded-full bg-ink/8">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-copper/70 to-copper transition-[width] duration-700 ease-[var(--ease-out)]"
+                      style={{
+                        width: `${Math.min(100, usage.usage / usage.quota > 0.005 ? Math.max(2, (usage.usage / usage.quota) * 100) : 0)}%`,
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="h-[3px] w-full overflow-hidden rounded-full bg-ink/8">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-copper/70 to-copper transition-[width] duration-700 ease-[var(--ease-out)]"
-                    style={{
-                      width: `${Math.min(100, Math.max(2, (usage.usage / usage.quota) * 100))}%`,
-                    }}
-                  />
+              ) : (
+                <div className="grid gap-1.5 opacity-0" aria-hidden>
+                  <div className="flex items-center justify-between text-[10.5px]">
+                    <span>000 MB</span>
+                    <span>0%</span>
+                  </div>
+                  <div className="h-[3px] w-full rounded-full" />
                 </div>
-              </div>
-            )}
+              )}
+            </div>
             <span className="text-[10.5px] text-ink-faint/70 tabular-nums">v{APP_VERSION}</span>
           </div>
         )}
