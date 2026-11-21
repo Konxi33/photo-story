@@ -388,6 +388,18 @@ export default function ProjectsPage() {
                 onDelete={() => setDeleteTarget(project)}
               />
             ))}
+
+            {/* 0.7.3：书架别留半宫格空着 —— 末尾放一块虚线「新建」，空状态也算入口 */}
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="group flex min-h-[190px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line/70 bg-surface-2/20 text-[12px] text-ink-faint transition-colors duration-300 hover:border-copper/45 hover:bg-surface-2/40 hover:text-ink"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line/70 bg-surface-2/60 transition-colors group-hover:border-copper/40 group-hover:text-copper">
+                <Plus className="h-4 w-4" strokeWidth={1.8} />
+              </span>
+              新建一本
+            </button>
           </div>
         )}
       </section>
@@ -527,11 +539,11 @@ function ProjectCard({
             aria-label="生成进度"
           >
             <span
-              className="h-full bg-emerald-400 transition-[width] duration-500"
+              className="h-full bg-copper/90 transition-[width] duration-500"
               style={{ width: `${(project.successCount / project.photoCount) * 100}%` }}
             />
             <span
-              className="h-full bg-red-400 transition-[width] duration-500"
+              className="h-full bg-rose-400/80 transition-[width] duration-500"
               style={{ width: `${(project.failedCount / project.photoCount) * 100}%` }}
             />
           </div>
@@ -556,7 +568,7 @@ function ProjectCard({
           <i
             className={cn(
               'h-1.5 w-1.5 rounded-full',
-              isComplete ? 'bg-emerald-500' : 'bg-amber-500',
+              isComplete ? 'bg-copper' : 'bg-amber-500',
             )}
           />
           {isComplete ? '全部完成' : `完成 ${project.successCount}/${project.photoCount}`}

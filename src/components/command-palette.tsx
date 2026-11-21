@@ -37,7 +37,7 @@ interface CommandItem {
   id: string;
   label: string;
   hint?: string;
-  group: '页面' | '项目' | '照片' | '操作';
+  group: '最近' | '页面' | '项目' | '照片' | '操作';
   href?: string;
   icon: typeof LayoutGrid;
   run?: () => void;
@@ -55,6 +55,7 @@ export function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [recent, setRecent] = useState<{ href: string; label: string }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -62,6 +63,14 @@ export function CommandPalette({
     setKeyword('');
     setCursor(0);
     const timer = window.setTimeout(() => inputRef.current?.focus(), 40);
+
+    // 0.7.3：最近去过的页面（AppShell 每次导航写进 ps:recent-pages）
+    try {
+      const raw = window.localStorage.getItem('ps:recent-pages');
+      setRecent(raw ? (JSON.parse(raw) as { href: string; label: string }[]) : []);
+    } catch {
+      setRecent([]);
+    }
 
     void (async () => {
       try {
@@ -167,8 +176,22 @@ export function CommandPalette({
       icon: ImageIcon,
     }));
 
-    return [...actions, ...pages, ...projectItems, ...photoItems];
-  }, [photos, projects, router]);
+    // 0.7.3：把「最近打开」提到最前面，开门见山就是刚才那几处
+    const pageByHref = new Map(pages.map((page) => [page.href, page]));
+    const recentItems: CommandItem[] = recent
+      .map((entry) => pageByHref.get(entry.href))
+      .filter((page): page is CommandItem => Boolean(page))
+      .map((page) => ({ ...page, id: 'r-' + page.id, group: '最近' as const, hint: '刚才看过' }));
+
+    const recentHrefs = new Set(recent.map((entry) => entry.href));
+    return [
+      ...actions,
+      ...recentItems,
+      ...pages.filter((page) => !recentHrefs.has(page.href ?? '')),
+      ...projectItems,
+      ...photoItems,
+    ];
+  }, [photos, projects, recent, router]);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();

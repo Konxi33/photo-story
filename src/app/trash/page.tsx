@@ -138,7 +138,7 @@ export default function TrashPage() {
         ) : null
       }
     >
-      <div className="mx-auto grid w-full max-w-5xl gap-5">
+      <div className="mx-auto grid w-full max-w-5xl gap-5 px-5 py-8 md:px-8">
         <header className="grid gap-1.5">
           <h1 className="ps-display text-[26px] leading-tight">回收站</h1>
           <p className="max-w-2xl text-[12.5px] leading-relaxed text-ink-soft">

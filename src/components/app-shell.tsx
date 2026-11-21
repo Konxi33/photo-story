@@ -542,6 +542,28 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     mirrorSidebarCookie(compact);
   }, [compact]);
 
+  /**
+   * 0.7.3：记住最近去过的页面，给命令面板做「最近打开」。
+   * 每页各挂一份 AppShell，所以只能落 localStorage；只存路径与名字，不存数据。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const nav = [...FLAT, SETTINGS_ITEM];
+    const hit = nav.find(
+      (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
+    );
+    if (!hit) return;
+    try {
+      const key = 'ps:recent-pages';
+      const raw = window.localStorage.getItem(key);
+      const list: { href: string; label: string }[] = raw ? JSON.parse(raw) : [];
+      const next = [{ href: hit.href, label: hit.label }, ...list.filter((x) => x.href !== hit.href)].slice(0, 5);
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // 存不下就算了，不影响页面
+    }
+  }, [pathname]);
+
   const blur = settings?.backgroundBlur ?? 14;
   const animations = settings?.animations !== false;
 
@@ -689,7 +711,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         className={cn(
           'relative min-w-0 transition-[padding] duration-[360ms] ease-[var(--ease-out)]',
           hoverSidebar
-            ? 'md:pl-0'
+            ? 'md:pl-[var(--shell-gap)]'
             : compact
               ? 'md:pl-[calc(var(--rail-w-compact)+var(--shell-gap)*2)]'
               : 'md:pl-[calc(var(--rail-w)+var(--shell-gap)*2)]',

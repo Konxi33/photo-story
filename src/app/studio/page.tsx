@@ -745,7 +745,7 @@ export default function StudioPage() {
         </div>
       }
     >
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_344px]">
+      <div className="grid gap-6 px-5 py-6 md:px-8 lg:grid-cols-[minmax(0,1fr)_344px]">
         {/* 左：纸 */}
         <div className="min-w-0">
           <header className="mb-3 flex flex-wrap items-end justify-between gap-3">

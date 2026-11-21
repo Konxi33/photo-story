@@ -236,7 +236,7 @@ export default function FlipPage(): React.JSX.Element {
 
   return (
     <AppShell>
-      <div className="mx-auto grid w-full max-w-6xl gap-5">
+      <div className="mx-auto grid w-full max-w-6xl gap-5 px-5 py-8 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid gap-1.5">
             <h1 className="ps-display text-[26px] leading-tight">翻页预览</h1>
