@@ -57,6 +57,7 @@ import { Switch } from '@/components/ui/switch';
 import { ProjectRepository } from '@/lib/db';
 import { readBook } from '@/lib/book/store';
 import { PAGE_STYLES } from '@/lib/export/typography';
+import { StylePreview } from '@/components/workbench/style-preview';
 import { clearImageCache, exportToDocx, exportToPdf, exportToPptx } from '@/lib/export';
 import {
   BLOCKS,
@@ -916,12 +917,18 @@ export function ExportDialog({
               {/* 0.6.4：版式预设 —— 换的是「这一页怎么组织」，不是换个皮肤 */}
               <div className="col-span-2 grid gap-1.5">
                 <span className="text-[13px] font-medium text-ink">版式</span>
-                <Segmented
-                  value={pageStyleId}
-                  onChange={(v) => setPageStyleId(v as 'album' | 'essay' | 'archive')}
-                  options={PAGE_STYLES.map((s) => ({ value: s.id, label: s.label }))}
-                  size="sm"
-                />
+                {/* 0.7.1：三选改成三张纸面缩略图，一眼看出「图多大、字在哪」 */}
+                <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="版式">
+                  {PAGE_STYLES.map((s) => (
+                    <StylePreview
+                      key={s.id}
+                      id={s.id}
+                      label={s.label}
+                      active={pageStyleId === s.id}
+                      onPick={() => setPageStyleId(s.id)}
+                    />
+                  ))}
+                </div>
                 <p className="text-[11px] leading-relaxed text-ink-faint">
                   {PAGE_STYLES.find((s) => s.id === pageStyleId)?.hint}
                 </p>

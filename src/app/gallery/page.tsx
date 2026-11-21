@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, ImageOff, Images, LayoutGrid, Search, Waves, X } from 'lucide-react';
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, Hand, ImageOff, Images, LayoutGrid, Maximize2, Mouse, Search, Waves, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AppShell } from '@/components/app-shell';
@@ -305,6 +305,15 @@ export default function GalleryPage() {
             （实测摊开占 251px，墙面只剩 198px 可见；收起后是一枚 chip） */}
         <ModuleGuide moduleId="gallery" autoOpen={false} className="mb-5" />
 
+        {/* 0.7.1：墙面怎么用，用图标说清楚，不再堆一行小字 */}
+        {view === 'wall' && (
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <WallHint icon={Hand} text="按住拖动" />
+            <WallHint icon={Mouse} text="滚轮缩放" />
+            <WallHint icon={Maximize2} text="双击看大图" />
+          </div>
+        )}
+
         {/* 分类：横向可滚动 + 两端渐隐 */}
         <div className="ps-edge-fade -mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-1 ps-no-scrollbar">
           <CategoryChip
@@ -447,6 +456,18 @@ export default function GalleryPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+function WallHint({ icon: Icon, text }: { icon: typeof Hand; text: string }) {
+  return (
+    <span
+      className="inline-flex select-none items-center gap-1 rounded-full border border-line/50 bg-surface-2/50 px-2 py-1 text-[11px] leading-none text-ink-faint"
+      aria-hidden
+    >
+      <Icon className="h-3 w-3" strokeWidth={1.8} />
+      {text}
+    </span>
   );
 }
 
