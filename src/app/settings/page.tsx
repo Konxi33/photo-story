@@ -72,7 +72,7 @@ import {
 import { KvRepository } from '@/lib/db';
 import { FRAME_PRESETS } from '@/lib/export/frame';
 import { LAYOUT_PRESETS } from '@/lib/export/layout';
-import { applyAppearance } from '@/lib/appearance';
+import { applyAppearance, readStoredAppearance } from '@/lib/appearance';
 import {
   checkForUpdate,
   clearPendingUpdate,
@@ -215,6 +215,21 @@ export default function SettingsPage() {
     });
   }, [themeMode, glass, glassBlur, fontFamily, loading]);
 
+  /**
+   * 0.7.1：选了「跟随系统」之后，系统在浅色/深色之间切换要立刻生效。
+   * 原来只在切换选项的那一刻读一次 prefers-color-scheme，系统真变了界面不动，
+   * 用户看到的就是「跟随系统好像没用」。
+   */
+  useEffect(() => {
+    if (themeMode !== 'system' || typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (): void => {
+      applyAppearance({ darkMode: false, themeMode: 'system', glass, glassBlur, fontFamily });
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themeMode, glass, glassBlur, fontFamily]);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -257,13 +272,24 @@ export default function SettingsPage() {
         setWallColumns(s.wallColumns ?? 3);
         setCompressOnUpload(s.compressOnUpload ?? true);
         setKeepOriginal(s.keepOriginal ?? true);
-        setThemeMode(s.themeMode ?? (s.darkMode ? 'dark' : 'system'));
-        setFontFamily(s.fontFamily ?? 'round');
+        // 0.7.1：外观四项（主题/玻璃/模糊/字体）以 localStorage 为准。
+        // 设置页的实时预览写的就是 localStorage；如果这里再拿 kv 的旧值覆盖 state，
+        // 预览效果会被「上一次保存的值」冲掉，看起来就是「改了不生效」。
+        const storedAppearance = readStoredAppearance();
+        const hasStoredAppearance =
+          typeof window !== 'undefined' && window.localStorage.getItem('ps:appearance') !== null;
+        setThemeMode(
+          hasStoredAppearance
+            ? storedAppearance.themeMode
+            : (s.themeMode ?? (s.darkMode ? 'dark' : 'system')),
+        );
+        setFontFamily(hasStoredAppearance ? storedAppearance.fontFamily : (s.fontFamily ?? 'round'));
+        setGlass(hasStoredAppearance ? storedAppearance.glass : (s.glass ?? false));
+        setGlassBlur(hasStoredAppearance ? storedAppearance.glassBlur : (s.glassBlur ?? 24));
         setSidebarMode(s.sidebarMode ?? 'always');
         setScoreEngine(s.scoreEngine ?? 'ai');
-        setGlass(s.glass ?? false);
-        setGlassBlur(s.glassBlur ?? 24);
         setGalleryColumns(s.galleryColumns ?? 4);
+
         setGallerySort(s.gallerySort ?? 'added');
         setDefaultFrame(s.defaultFrame ?? 'none');
         setExportDir(s.exportDir ?? '');
@@ -589,7 +615,7 @@ export default function SettingsPage() {
     >
       <div className="mx-auto w-full max-w-3xl px-5 py-9 md:px-8">
         <p className="ps-eyebrow">Settings</p>
-        <h1 className="ps-display mt-2 text-[26px] text-ink">设置</h1>
+        <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">设置</h1>
         <p className="mt-2 text-[13px] text-ink-mid">
           {APP_NAME} v{APP_VERSION} · 所有配置只保存在本机
         </p>

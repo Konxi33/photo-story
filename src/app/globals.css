@@ -12,43 +12,61 @@
  * ========================================================================== */
 
 :root {
-  --radius: 0.625rem;
-  --background: #faf8f4;
-  --foreground: #191919;
+  /* 0.7.0「陶土 + 暗房」：纸面再压深一档，让纯白卡片真正浮起来；
+     点缀色换成陶土铜（copper），配一个冷调蓝绿当数据辅助色。 */
+  --radius: 0.85rem;
+  --background: #f5f3ee;
+  --foreground: #15141a;
   --card: #ffffff;
-  --card-foreground: #191919;
-  --popover: #ffffff;
-  --popover-foreground: #191919;
-  --primary: #191919;
-  --primary-foreground: #faf8f4;
-  --secondary: #f2efe9;
-  --secondary-foreground: #191919;
-  --muted: #f2efe9;
-  --muted-foreground: #6a6a6a;
-  --accent: #ebe7df;
-  --accent-foreground: #191919;
-  --destructive: #b3261e;
-  --destructive-foreground: #faf8f4;
-  --border: #e2ded6;
-  --input: #ded9d0;
-  --ring: #8a8a8a;
+  --card-foreground: #15141a;
+  --popover: #fffefb;
+  --popover-foreground: #15141a;
+  --primary: #1b1a20;
+  --primary-foreground: #f7f5f0;
+  --secondary: #eae5db;
+  --secondary-foreground: #1b1a20;
+  --muted: #efeae1;
+  --muted-foreground: #625e58;
+  --accent: #e7e1d6;
+  --accent-foreground: #1b1a20;
+  --destructive: #b23c2f;
+  --destructive-foreground: #fdf9f4;
+  --border: #e0dace;
+  --input: #d9d3c6;
+  --ring: #b25c34;
 
-  /* ---- 动效令牌 ---- */
-  --dur-1: 120ms;
-  --dur-2: 200ms;
-  --dur-3: 320ms;
-  --dur-4: 460ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* ---- 品牌点缀：陶土铜（主）+ 暗房蓝（次）---- */
+  --copper: #b25c34;
+  --copper-soft: #c87850;
+  --cool: #2f5875;
+  --glow: rgba(178, 92, 52, 0.16);
+
+  /* ---- 动效令牌（0.7.0 统一节奏，最慢一档加长到 720ms 给大位移）---- */
+  --dur-1: 140ms;
+  --dur-2: 220ms;
+  --dur-3: 340ms;
+  --dur-4: 520ms;
+  --dur-5: 720ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 快门式擦除，页面转场用 */
+  --ease-shutter: cubic-bezier(0.85, 0, 0.15, 1);
 
   /* ---- 分层阴影（浅色：柔和投影 + 极淡描边）---- */
-  --elev-1: 0 1px 2px rgba(24, 22, 18, 0.04), 0 1px 3px rgba(24, 22, 18, 0.03);
-  --elev-2: 0 2px 6px -2px rgba(24, 22, 18, 0.06), 0 8px 24px -12px rgba(24, 22, 18, 0.1);
-  --elev-3: 0 8px 20px -8px rgba(24, 22, 18, 0.1), 0 24px 56px -28px rgba(24, 22, 18, 0.18);
-  --elev-hover: 0 4px 12px -4px rgba(24, 22, 18, 0.08), 0 18px 44px -20px rgba(24, 22, 18, 0.16);
-  --hairline: rgba(24, 22, 18, 0.07);
+  --elev-1: 0 1px 2px rgba(28, 25, 20, 0.05), 0 1px 1px rgba(28, 25, 20, 0.03);
+  --elev-2: 0 2px 4px -2px rgba(28, 25, 20, 0.06), 0 10px 26px -14px rgba(28, 25, 20, 0.14);
+  --elev-3: 0 10px 24px -10px rgba(28, 25, 20, 0.14), 0 32px 64px -36px rgba(28, 25, 20, 0.24);
+  --elev-hover: 0 4px 10px -4px rgba(28, 25, 20, 0.08), 0 22px 48px -24px rgba(28, 25, 20, 0.2);
+  --hairline: rgba(28, 25, 20, 0.08);
+  --elev-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* ---- 外壳尺寸 ---- */
+  --rail-w: 16.5rem;
+  --rail-w-compact: 4.75rem;
+  --header-h: 3.75rem;
+  --shell-gap: 0.75rem;
 }
 
 @theme inline {
@@ -78,21 +96,25 @@
 }
 
 @theme {
-  --color-paper: #faf8f4;
-  --color-ink: #191919;
-  --color-ink-mid: #6a6a6a;
-  --color-ink-light: #8f8b84;
-  --color-ink-faint: #b3aea5;
-  --color-line: #e2ded6;
+  --color-paper: #f5f3ee;
+  --color-ink: #15141a;
+  --color-ink-mid: #625e58;
+  --color-ink-light: #8b877f;
+  --color-ink-faint: #b4afa4;
+  --color-line: #e0dace;
   --color-surface: #ffffff;
-  --color-surface-2: #f5f2ec;
-  --color-surface-3: #efebe3;
+  --color-surface-2: #eeeadf;
+  --color-surface-3: #e5e0d4;
+  /* 0.7.0 新点缀色，可直接写 bg-copper / text-cool */
+  --color-copper: #b25c34;
+  --color-copper-soft: #c87850;
+  --color-cool: #2f5875;
   --font-serif: 'Songti SC', 'SimSun', '宋体', 'Source Han Serif SC', 'Noto Serif CJK SC', Georgia, serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', system-ui, sans-serif;
-  --radius-xs: 4px;
-  --radius-card: 12px;
-  --spacing-gutter: 1rem;
-  --spacing-section: 2.5rem;
+  --radius-xs: 6px;
+  --radius-card: 16px;
+  --spacing-gutter: 1.25rem;
+  --spacing-section: 3rem;
 }
 
 /* ------------------------------- 字体方案 ------------------------------- */
@@ -126,41 +148,49 @@
  * 这样卡片靠明度就能浮起来，不用满屏描边
  * ========================================================================== */
 [data-theme='dark'] {
-  --color-paper: #0e0e11;
+  --color-paper: #0b0b0f;
   --color-ink: #f4f2ec;
-  --color-ink-mid: #a9a69d;
-  --color-ink-light: #8b8880;
-  --color-ink-faint: #6b6862;
-  --color-line: #2a2a31;
-  --color-surface: #16161a;
-  --color-surface-2: #1d1d23;
-  --color-surface-3: #24242b;
+  --color-ink-mid: #a8a59c;
+  --color-ink-light: #8a877f;
+  --color-ink-faint: #6a675f;
+  --color-line: #2a2a33;
+  --color-surface: #131319;
+  --color-surface-2: #1a1a21;
+  --color-surface-3: #23232b;
+  --color-copper: #e08a57;
+  --color-copper-soft: #ecab80;
+  --color-cool: #7fa8c4;
 
-  --background: #0e0e11;
+  --background: #0b0b0f;
   --foreground: #f4f2ec;
-  --card: #16161a;
+  --card: #131319;
   --card-foreground: #f4f2ec;
-  --popover: #1a1a1f;
+  --popover: #17171d;
   --popover-foreground: #f4f2ec;
   --primary: #f4f2ec;
-  --primary-foreground: #0e0e11;
-  --secondary: #1f1f25;
+  --primary-foreground: #0b0b0f;
+  --secondary: #1e1e26;
   --secondary-foreground: #f4f2ec;
-  --muted: #1f1f25;
-  --muted-foreground: #a9a69d;
-  --accent: #26262e;
+  --muted: #1e1e26;
+  --muted-foreground: #a8a59c;
+  --accent: #25252e;
   --accent-foreground: #f4f2ec;
-  --border: #2a2a31;
-  --input: #33333c;
-  --ring: #6f6f7a;
+  --border: #2a2a33;
+  --input: #34343e;
+  --ring: #e08a57;
   --destructive: #d4574d;
-  --destructive-foreground: #0e0e11;
+  --destructive-foreground: #0b0b0f;
+  --copper: #e08a57;
+  --copper-soft: #ecab80;
+  --cool: #7fa8c4;
+  --glow: rgba(224, 138, 87, 0.18);
 
-  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.5), 0 12px 28px -16px rgba(0, 0, 0, 0.6);
-  --elev-3: 0 12px 28px -12px rgba(0, 0, 0, 0.6), 0 32px 64px -32px rgba(0, 0, 0, 0.8);
-  --elev-hover: 0 4px 14px -4px rgba(0, 0, 0, 0.55), 0 22px 50px -24px rgba(0, 0, 0, 0.7);
-  --hairline: rgba(255, 255, 255, 0.075);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --elev-2: 0 2px 8px -2px rgba(0, 0, 0, 0.55), 0 12px 28px -16px rgba(0, 0, 0, 0.65);
+  --elev-3: 0 14px 30px -14px rgba(0, 0, 0, 0.7), 0 36px 72px -36px rgba(0, 0, 0, 0.85);
+  --elev-hover: 0 6px 16px -6px rgba(0, 0, 0, 0.6), 0 24px 52px -26px rgba(0, 0, 0, 0.75);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --elev-inset: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
 @layer base {
@@ -181,7 +211,7 @@
 
   /* 0.4.1：首帧前就按折叠状态收窄侧栏，避免闪一下再收 */
   html[data-sidebar='compact'] aside.ps-sidebar {
-    width: 4.5rem !important;
+    width: var(--rail-w-compact) !important;
   }
 
   html[data-sidebar='compact'] aside.ps-sidebar [data-sidebar-label] {
@@ -194,10 +224,21 @@
 
   body {
     background-color: var(--color-paper);
+    /* 0.7.0：一层陶土暖光 + 一层冷调补光 + 一层纸纤维噪点。
+       噪点用 SVG feTurbulence 内联，不额外请求图片，深色下几乎不可见但能压住「塑料感」。 */
     background-image:
-      radial-gradient(1200px 560px at 8% -10%, #fffefb 0%, transparent 60%),
-      radial-gradient(1000px 500px at 96% -6%, #f4efe5 0%, transparent 56%);
-    background-attachment: fixed;
+      radial-gradient(1100px 520px at 6% -12%, rgba(255, 252, 246, 0.95) 0%, transparent 62%),
+      radial-gradient(900px 460px at 98% -8%, rgba(178, 92, 52, 0.1) 0%, transparent 58%),
+      radial-gradient(700px 420px at 50% 110%, rgba(47, 88, 117, 0.06) 0%, transparent 62%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.28'/></svg>");
+    /* 0.7.2：原来这里写的是 `fixed, fixed, fixed, repeat`——`repeat` 不是
+       background-attachment 的合法值，整条声明被浏览器**整条丢弃**，
+       实测 computed 值是 `scroll, scroll, scroll, scroll`，也就是「固定背景」
+       从来没生效过（.devtools/perf-var-attach.css 的 A/B 因此毫无差别：
+       /home 静置 33.9→32.7fps、滚动 31.3→34.5fps，全在噪声里）。
+       现在按原本意图写成三个渐变色固定、噪点跟着元素（噪点本身是 140px 平铺
+       贴图，两种附着方式渲染完全一致）。 */
+    background-attachment: fixed, fixed, fixed, scroll;
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-size: 14px;
@@ -210,15 +251,20 @@
 
   [data-theme='dark'] body {
     background-image:
-      radial-gradient(1200px 560px at 8% -10%, #191920 0%, transparent 60%),
-      radial-gradient(1000px 500px at 96% -6%, #15151b 0%, transparent 56%);
+      radial-gradient(1100px 520px at 4% -14%, rgba(38, 38, 48, 0.9) 0%, transparent 60%),
+      radial-gradient(900px 460px at 100% -6%, rgba(224, 138, 87, 0.14) 0%, transparent 56%),
+      radial-gradient(760px 440px at 46% 112%, rgba(47, 88, 117, 0.16) 0%, transparent 60%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.5'/></svg>");
   }
 
   /* 0.5.1：顶栏改为 sticky，需要自带一层与页面底色一致的半透明底，否则内容会从下面透出来 */
   [data-glass-bar] {
     background-color: color-mix(in srgb, var(--color-paper) 88%, transparent);
-    backdrop-filter: blur(14px) saturate(150%);
-    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    /* 0.7.2：14px → 10px。顶栏是 sticky 的，内容从底下滚过时模糊层必须每帧
+       重新采样背景（A/B 实测去掉全部 backdrop-filter 值 +10fps）。底已经是
+       88% 不透明的纸色，10px 与 14px 肉眼几乎分不出来。 */
+    backdrop-filter: blur(10px) saturate(140%);
+    -webkit-backdrop-filter: blur(10px) saturate(140%);
   }
 
   [data-theme='dark'] [data-glass-bar] {
@@ -272,13 +318,14 @@
   line-height: 1.16;
 }
 
-/* 小标签（分组标题、字段名）：大写字距 */
+/* 小标签（分组标题、字段名）：大写字距
+   0.7.0：字重降一档、字距再开一点，配深一号的灰，避免满屏小黑块 */
 @utility ps-eyebrow {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--color-ink-light);
+  color: var(--color-ink-faint);
 }
 
 @utility ps-caption {
@@ -342,8 +389,13 @@
     background-color var(--dur-2) var(--ease-out),
     border-color var(--dur-2) var(--ease-out),
     color var(--dur-2) var(--ease-out);
-  will-change: transform;
+  /* 0.7.2：will-change 从常驻改成悬停时才提示。原来全站 44 个元素常驻
+     will-change: transform（/gallery 实测 44 个、/home 17 个），Chromium 会给
+     每个都留一层合成层、常驻显存并拖慢合成。悬停时再挂上足够（浏览器有
+     ~几百 ms 的预热窗口）。实测去掉后 /home 33.9→38.4fps、/gallery 27→29.6fps
+     （幅度在噪声内，方向一致，零风险所以保留）。 */
   &:hover {
+    will-change: transform;
     transform: translateY(-1.5px);
   }
 }
@@ -365,7 +417,7 @@
 }
 
 @utility ps-enter {
-  animation: ps-enter var(--dur-4) var(--ease-out) both;
+  animation: ps-enter var(--dur-4) var(--ease-out) backwards;
   animation-delay: var(--ps-delay, 0ms);
 }
 
@@ -381,7 +433,7 @@
 }
 
 @utility ps-fade-up {
-  animation: ps-fade-up var(--dur-4) var(--ease-out) both;
+  animation: ps-fade-up var(--dur-4) var(--ease-out) backwards;
   animation-delay: var(--ps-delay, 0ms);
 }
 
@@ -396,7 +448,7 @@
 }
 
 @utility ps-fade-in {
-  animation: ps-fade-in var(--dur-3) var(--ease-out) both;
+  animation: ps-fade-in var(--dur-3) var(--ease-out) backwards;
   animation-delay: var(--ps-delay, 0ms);
 }
 
@@ -484,7 +536,7 @@
 }
 
 @utility ps-pop-in {
-  animation: ps-pop-in 180ms var(--ease-out) both;
+  animation: ps-pop-in 180ms var(--ease-out) backwards;
 }
 
 /* 面板式浮层（命令面板）：不带 translate(-50%) 的弹入，用于自己定位的浮层 */
@@ -507,11 +559,11 @@
 }
 
 @utility ps-dialog-panel-in {
-  animation: ps-dialog-panel-in 280ms var(--ease-spring) both;
+  animation: ps-dialog-panel-in 280ms var(--ease-spring) backwards;
 }
 
 @utility ps-sheet-in {
-  animation: ps-sheet-in 320ms var(--ease-out) both;
+  animation: ps-sheet-in 320ms var(--ease-out) backwards;
 }
 
 @utility ps-sheet-out {
@@ -535,7 +587,7 @@
 }
 
 @utility ps-badge-in {
-  animation: ps-badge-in 320ms var(--ease-spring) both;
+  animation: ps-badge-in 320ms var(--ease-spring) backwards;
 }
 
 /* 图片解码完成后淡入：配合 <img class="ps-img"> 与 onLoad 加 data-loaded */
@@ -597,7 +649,11 @@
     background-color 180ms ease,
     color 180ms ease,
     border-color 180ms ease;
-  will-change: transform;
+  /* 0.7.2：同 .ps-lift，常驻 will-change 会白占合成层。按下/悬停时再挂。 */
+  &:hover,
+  &:focus-visible {
+    will-change: transform;
+  }
 }
 
 .ps-pressable:active {
@@ -638,12 +694,54 @@
   }
 }
 
+/* 0.7.2 性能修复（这是整份优化里最重的一条）
+   原来 .ps-drift / .ps-drift-slow 动的是 transform，而这两个 div 身上还挂着
+   内联的 `filter: blur(14px)`（app-shell.tsx 的 settings.backgroundBlur），
+   尺寸 46vw / 54vw。transform 动画 = 每帧重新栅格化这块巨大的模糊面，
+   Windows Chromium（软件合成时更惨）实测把 /home 从 60fps 打到 23~34fps，
+   长帧 65~87ms，滚动时肉眼可见「闪烁跳动」。
+   A/B 证据（.devtools/perf-var-*.css，同一环境同一轮）：
+     基线 idle 33.9 / scroll 31.3
+     只停动画保留 14px blur（stop-only） idle 60 / scroll 60，LoAF 0
+     漂移还在、blur 降到 2px（blur2）    idle 41.1
+     漂移还在、blur 去掉（blobnoblur）  idle 42.9
+     加 will-change+contain 再漂移（layer） idle 34.3  ← 提层救不了
+     漂移改成 steps() 量化（steps）     idle 37.9  ← 量化也不够
+     漂移换成 opacity 呼吸（breath）    idle 60 / scroll 59.8，LoAF 0
+   → 结论：只要这个大模糊面还在「移动/缩放」，就一定每帧重栅格化；
+     opacity 是合成器属性，不触发重拍。所以默认改成「暖光呼吸」，
+     观感保留（光斑仍在一呼一吸），掉帧归零。
+   想要原来那种缓慢飘移的设计师/机器，可以在 <html> 上加
+   data-motion="drift" 显式开回来（见文件末尾的开关区）。 */
+@keyframes ps-breath {
+  0%,
+  100% {
+    opacity: 0.74;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
 @utility ps-drift {
-  animation: ps-drift 22s ease-in-out infinite;
+  animation: ps-breath 17s ease-in-out infinite;
+  contain: paint;
 }
 
 @utility ps-drift-slow {
+  animation: ps-breath 26s ease-in-out infinite;
+  contain: paint;
+}
+
+/* 显式要求时才回到会漂移的老版本 */
+html[data-motion='drift'] .ps-drift {
+  animation: ps-drift 22s ease-in-out infinite;
+  contain: none;
+}
+
+html[data-motion='drift'] .ps-drift-slow {
   animation: ps-drift-slow 30s ease-in-out infinite;
+  contain: none;
 }
 
 /* 预览层：背景淡入 / 面板回弹 / 文字逐块上滑 */
@@ -694,16 +792,16 @@
 }
 
 @utility ps-backdrop-in {
-  animation: ps-backdrop-in 320ms ease-out both;
+  animation: ps-backdrop-in 320ms ease-out backwards;
 }
 @utility ps-panel-in {
-  animation: ps-panel-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  animation: ps-panel-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1) backwards;
 }
 @utility ps-slide-up {
-  animation: ps-slide-up 420ms var(--ease-out) both;
+  animation: ps-slide-up 420ms var(--ease-out) backwards;
 }
 @utility ps-slide-right {
-  animation: ps-slide-right 420ms var(--ease-out) both;
+  animation: ps-slide-right 420ms var(--ease-out) backwards;
 }
 
 /* 一级菜单切换：按方向滑动 + 非线性高斯模糊 */
@@ -797,7 +895,7 @@
 
 @utility ps-num {
   display: inline-block;
-  animation: ps-num-in 420ms var(--ease-out) both;
+  animation: ps-num-in 420ms var(--ease-out) backwards;
 }
 
 /* 直方图柱子生长：从底部长到目标高度 */
@@ -818,8 +916,14 @@
 /* ============================== 玻璃材质 ============================== */
 
 :root {
-  --glass-blur: 24px;
-  --glass-sat: 190%;
+  /* 0.7.2：24px → 13px、190% → 140%。
+     glass 是默认关闭的可选皮肤（settings.glass），但一旦打开，这条 blur 会挂到
+     所有 .bg-surface 卡片上 —— 卡片数量随便几十个，每个都在实时采样背景。
+     A/B 实测「全站去掉 backdrop-filter」值约 +10fps（.devtools/perf-var-nobackdrop.css：
+     /home idle 33.9→43.4、scroll 31.3→43.1）。半径减半 + 去掉过饱和，
+     采样面积降到约 1/3，观感仍是玻璃。tint 色值一个没动。 */
+  --glass-blur: 13px;
+  --glass-sat: 140%;
   --glass-1-tint: 74%;
   --glass-2-tint: 64%;
   --glass-3-tint: 96%;
@@ -915,6 +1019,11 @@
 
 /* ============================== 减少动效 ============================== */
 
+/* 0.7.2：原来是「列一串类名关动画」，漏掉了 .ps-aperture（26s 旋转）、
+   .ps-float、.ps-sheen、.ps-hero-glow、.ps-wall-* 等一大堆常驻动画 ——
+   开着「减少动效」的用户机器上，这些背景动画照样每秒重绘。现在补成
+   枚举 + 兜底双保险，另外给出 html[data-motion='off'] 这个纯 CSS 开关
+   （不需要改 tsx，用户在系统层面关掉动效即生效）。 */
 @media (prefers-reduced-motion: reduce) {
   .ps-drift,
   .ps-drift-slow,
@@ -934,7 +1043,14 @@
   .ps-page-prev,
   .ps-skeleton,
   .ps-pulse-soft,
-  .ps-num {
+  .ps-num,
+  .ps-aperture,
+  .ps-float,
+  .ps-sheen,
+  .ps-sheen::after,
+  .ps-hero-glow,
+  .ps-stage-line,
+  .ps-arrow {
     animation: none !important;
   }
 
@@ -947,7 +1063,27 @@
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    /* 兜底：任何漏网的入场/装饰动画都在 1ms 内落地，不会留下长期动画，
+       也不会留下 fill 状态（入场动画已是 backwards，结束即回到自然态）。 */
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 60ms !important;
   }
+}
+
+/* 语义化开关：<html data-motion="off"> 等效于系统「减少动效」。
+   data-motion="drift" 则相反，把两个光斑的老式漂移动画显式换回来
+   （见 .ps-drift 一带的注释）。两者都不需要改 tsx。 */
+html[data-motion='off'] .ps-drift,
+html[data-motion='off'] .ps-drift-slow,
+html[data-motion='off'] .ps-aperture,
+html[data-motion='off'] .ps-float,
+html[data-motion='off'] .ps-sheen,
+html[data-motion='off'] .ps-sheen::after,
+html[data-motion='off'] .ps-skeleton,
+html[data-motion='off'] .ps-pulse-soft {
+  animation: none !important;
 }
 
 /* ============================== 背景 ============================== */
@@ -967,4 +1103,877 @@ body {
   --app-bg: rgba(14, 14, 17, 0.86);
   --blob-1: radial-gradient(circle, rgba(84, 92, 140, 0.14) 0%, rgba(14, 14, 17, 0) 68%);
   --blob-2: radial-gradient(circle, rgba(44, 88, 86, 0.12) 0%, rgba(14, 14, 17, 0) 68%);
+}
+
+/* ============================================================================
+ * 0.7.0「陶土 + 暗房」组件层
+ *  - 外壳：浮动侧栏（.ps-rail）+ 细线顶栏 + 内容舞台
+ *  - 卡片：.ps-card 三档（静默 / 交互 / 高亮）
+ *  - 排版：.ps-display 大标题、.ps-cap 眉标、.ps-stat 数字
+ *  - 动效：.ps-reveal 错峰入场、.ps-sheen 掠过、.ps-float 呼吸
+ *  只在这里加新类，不改旧类名，页面可逐个迁移过来。
+ * ========================================================================== */
+
+/* ------------------------------- 面板 ------------------------------- */
+.ps-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elev-1), var(--elev-inset);
+  transition:
+    transform var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out);
+}
+
+.ps-card-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--elev-hover), var(--elev-inset);
+  border-color: color-mix(in srgb, var(--color-copper) 26%, var(--hairline));
+}
+
+.ps-card-lift:active {
+  transform: translateY(-1px) scale(0.998);
+}
+
+/* 玻璃面板：侧栏、顶栏、弹层共用
+   0.7.2：22px/28px → 9px/12px（saturate 也降了）。
+   侧栏底色本来就有 78%/92% 实色，模糊只负责「透一点点」，半径砍到这个量级
+   几乎看不出差别，但实时采样的像素面积降到约 1/6。实测「全站去掉
+   backdrop-filter」值 +10fps（见文件头 .ps-drift 处的 A/B 表），
+   按半径平方近似，这两处大约能收回 3~5fps。 */
+.ps-glass {
+  background-color: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(9px) saturate(125%);
+  -webkit-backdrop-filter: blur(9px) saturate(125%);
+}
+
+.ps-glass-strong {
+  background-color: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+
+/* ------------------------------ 浮动侧栏 ------------------------------ */
+.ps-rail {
+  border-radius: 24px;
+  border: 1px solid var(--hairline);
+  box-shadow: var(--elev-2), var(--elev-inset);
+}
+
+.ps-navlink {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  height: 2.25rem;
+  padding-inline: 0.625rem;
+  border-radius: 0.75rem;
+  font-size: 13px;
+  letter-spacing: 0.005em;
+  color: var(--color-ink-mid);
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
+}
+
+.ps-navlink:hover {
+  background-color: color-mix(in srgb, var(--color-surface-2) 70%, transparent);
+  color: var(--color-ink);
+}
+
+.ps-navlink[data-active='true'] {
+  background-color: color-mix(in srgb, var(--color-ink) 94%, transparent);
+  color: var(--color-paper);
+  box-shadow: 0 6px 18px -12px rgba(20, 19, 26, 0.6);
+}
+
+[data-theme='dark'] .ps-navlink[data-active='true'] {
+  background-color: color-mix(in srgb, var(--color-ink) 92%, transparent);
+  color: #0b0b0f;
+}
+
+.ps-navlink[data-active='true']::after {
+  content: '';
+  position: absolute;
+  right: 0.55rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background-color: var(--copper-soft);
+}
+
+.ps-navlink:active {
+  transform: scale(0.985);
+}
+
+/* ------------------------------ 排版 ------------------------------ */
+.ps-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.12;
+}
+
+.ps-cap {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+.ps-stat {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.ps-hairline-x {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--hairline) 12%, var(--hairline) 88%, transparent);
+}
+
+/* ------------------------------ 小物件 ------------------------------ */
+.ps-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.75rem;
+  padding-inline: 0.625rem;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background-color: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  font-size: 11.5px;
+  color: var(--color-ink-mid);
+  transition:
+    border-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out);
+}
+
+.ps-chip:hover {
+  color: var(--color-ink);
+  border-color: color-mix(in srgb, var(--color-copper) 30%, var(--hairline));
+}
+
+.ps-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.35rem;
+  padding-inline: 0.3rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--hairline);
+  background-color: color-mix(in srgb, var(--color-surface-2) 60%, transparent);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-mid);
+}
+
+/* 主按钮的「掠过」高光：给 .ps-sheen 的容器加 overflow:hidden */
+.ps-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.ps-sheen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.28) 46%,
+    rgba(255, 255, 255, 0.06) 58%,
+    transparent 72%
+  );
+  transform: translateX(-130%);
+  transition: transform 640ms var(--ease-out);
+  pointer-events: none;
+}
+
+.ps-sheen:hover::after {
+  transform: translateX(130%);
+}
+
+/* 悬停才浮出的「箭头」 */
+.ps-arrow {
+  transition: transform var(--dur-3) var(--ease-out), opacity var(--dur-3) var(--ease-out);
+  opacity: 0.55;
+}
+
+.group:hover .ps-arrow,
+.ps-card-lift:hover .ps-arrow {
+  transform: translate(2px, -2px);
+  opacity: 1;
+}
+
+/* 底部渐隐，用于横向滚动条 */
+.ps-edge-fade-x {
+  mask-image: linear-gradient(90deg, transparent, #000 2%, #000 96%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 2%, #000 96%, transparent);
+}
+
+/* 细滚动条（横向项目轨、照片库通用） */
+.ps-scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-ink) 18%, transparent) transparent;
+}
+
+.ps-scroll-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.ps-scroll-thin::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--color-ink) 16%, transparent);
+}
+
+.ps-scroll-thin::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/* ------------------------------ 光效 ------------------------------ */
+.ps-hero-glow {
+  position: absolute;
+  inset: -18% -10% auto -10%;
+  height: 78%;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 60% at 22% 30%, color-mix(in srgb, var(--color-copper) 20%, transparent) 0%, transparent 70%),
+    radial-gradient(40% 56% at 78% 16%, color-mix(in srgb, var(--color-cool) 14%, transparent) 0%, transparent 72%);
+  filter: blur(6px);
+}
+
+/* 光圈环：首页、空状态用；纯 CSS，无图片 */
+.ps-aperture {
+  position: relative;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--color-copper) 55%, transparent) 0deg,
+    transparent 70deg,
+    color-mix(in srgb, var(--color-cool) 45%, transparent) 140deg,
+    transparent 210deg,
+    color-mix(in srgb, var(--color-copper) 40%, transparent) 280deg,
+    transparent 350deg
+  );
+  mask: radial-gradient(circle, transparent 58%, #000 59%, #000 72%, transparent 73%);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%, #000 72%, transparent 73%);
+  animation: ps-spin-slow 26s linear infinite;
+  /* 0.7.2：26s 旋转的 conic-gradient + mask 是纯合成器能干的活，
+     前提是它自己成一个层。没有 will-change 时 Chromium 会每帧拿回主线程
+     重绘这块带 mask 的渐变（单测 nospin：28.2fps vs 基线 23.4fps，
+     幅度在噪声内，属于「便宜但免费」的一条）。contain: paint 让它
+     不会连带影响祖先的重绘范围。 */
+  will-change: transform;
+  contain: paint;
+}
+
+/* ------------------------------ 入场动效 ------------------------------ */
+@keyframes ps-reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.994);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+@keyframes ps-reveal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ps-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ps-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes ps-sweep-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 错峰入场：容器上加 .ps-reveal，子元素按 --i 递增延迟。
+   注意用 backwards（不是 both），否则动画结束后会以 fill 状态劫持 fixed 定位。 */
+.ps-reveal > * {
+  animation: ps-reveal-up var(--dur-4) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+
+.ps-reveal-fade > * {
+  animation: ps-reveal-fade var(--dur-3) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+.ps-float {
+  animation: ps-float 9s var(--ease-in-out) infinite;
+}
+
+/* 页面转场：内容区一次性抬起，配合外壳的 top line 扫过 */
+@keyframes ps-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ps-stage {
+  animation: ps-stage-in var(--dur-4) var(--ease-out) backwards;
+}
+
+.ps-stage-line {
+  animation: ps-sweep-x var(--dur-5) var(--ease-shutter) backwards;
+  transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-reveal > *,
+  .ps-reveal-fade > *,
+  .ps-stage,
+  .ps-stage-line,
+  .ps-aperture,
+  .ps-float {
+    animation: none !important;
+  }
+
+  .ps-card-lift:hover,
+  .ps-navlink:active {
+    transform: none;
+  }
+
+  .ps-sheen::after {
+    display: none;
+  }
+}
+
+/* ------------------------- 0.7.1：悬浮侧栏模式豁免 ------------------------- */
+/*
+ * 上面 html[data-sidebar='compact'] 那两条规则是「首帧前就把侧栏收窄」的补丁，
+ * 它们只对「常驻 + 折叠」有意义。可 data-sidebar 是按 localStorage 打的，
+ * 用户先折叠过一次（记住 '1'），再切到「悬浮展开」，悬浮面板就会被压成
+ * 4.75rem、文字全 display:none —— 表现就是「点不开」。
+ * AppShell 切模式时会把 data-sidebar 对齐回 'expanded'（见 app-shell.tsx 里的
+ * 那段 useEffect），下面这条再兜住首帧那一下：悬浮面板始终是全宽 + 有文字。
+ */
+html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover {
+  width: var(--rail-w) !important;
+}
+
+html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-label] {
+  display: block !important;
+}
+
+/* ============================== 照片墙（/gallery） ============================== */
+/*
+ * 一整面可以一直拖下去的照片墙。性能约定（改之前先读）：
+ *   1. 方块由 photo-wall.tsx 命令式创建（React 不参与每帧），每帧只写 transform / opacity；
+ *   2. 位置严格跟手（不插值），缩放与亮度每帧向目标值 lerp 0.2 逼近，不跳、不闪；
+ *   3. 拖动中（stage[data-moving='1']）方块 pointer-events: none，快速划过不会反复进出 hover；
+ *   4. 悬停只改子元素 opacity，绝不改 box-shadow / filter / width / top。
+ */
+
+.ps-wall {
+  --wall-paper: color-mix(in oklab, var(--background) 92%, var(--foreground) 8%);
+  --wall-dot: color-mix(in oklab, var(--foreground) 13%, transparent);
+  --wall-tile: color-mix(in oklab, var(--foreground) 6%, var(--background));
+  --wall-glass: color-mix(in oklab, var(--background) 86%, transparent);
+  --wall-ink: color-mix(in oklab, var(--foreground) 76%, transparent);
+
+  position: relative;
+  /* 0.7.1：让墙面尽量吃满一屏（封面/筛选/工具栏约占 330px），
+     原来 —310px 会让页面比视口高 20px，得往下滚一点才看全 */
+  height: clamp(400px, calc(100dvh - 340px), 1040px);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--wall-paper);
+  box-shadow: var(--elev-1);
+  isolation: isolate;
+}
+
+.ps-wall--immersive {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+/* 舞台：所有方块都绝对定位在这里，溢出裁掉；不做任何布局计算，只吃 transform */
+.ps-wall-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  contain: strict;
+  background-image: radial-gradient(var(--wall-dot) 1.1px, transparent 1.2px);
+  background-size: 28px 28px;
+  background-position: center center;
+}
+
+.ps-wall-stage[data-moving='1'] {
+  cursor: grabbing;
+}
+
+.ps-wall-stage[data-moving='1'] .ps-wall-tile {
+  pointer-events: none;
+}
+
+/* 方块：位置由 JS 写入 transform（translate3d + scale），left/top 永远不动 */
+.ps-wall-tile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 12px;
+  transform-origin: 50% 50%;
+  overflow: hidden;
+  background: var(--wall-tile);
+  contain: layout style paint;
+  backface-visibility: hidden;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 4px 10px -8px rgba(21, 20, 26, 0.35),
+    0 18px 30px -28px rgba(21, 20, 26, 0.5);
+}
+
+.ps-wall-cover {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--foreground) 5%, var(--background)),
+    color-mix(in oklab, var(--copper) 10%, var(--background))
+  );
+}
+
+.ps-wall-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 240ms linear;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+.ps-wall-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(21, 20, 26, 0.52), rgba(21, 20, 26, 0) 58%);
+  opacity: 0;
+  transition: opacity 180ms linear;
+  pointer-events: none;
+}
+
+.ps-wall-cap {
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 7px;
+  font-size: 10px;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: #faf8f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 180ms linear;
+  pointer-events: none;
+}
+
+.ps-wall-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 3px var(--copper);
+  opacity: 0;
+  transition: opacity 150ms linear;
+  pointer-events: none;
+}
+
+.ps-wall-badge {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--copper);
+  opacity: 0;
+  transition: opacity 120ms linear;
+  pointer-events: none;
+}
+
+.ps-wall-badge:empty {
+  display: none;
+}
+
+.ps-wall-tile[data-selected='1'] {
+  box-shadow:
+    0 0 0 2px var(--copper),
+    0 4px 10px -8px rgba(21, 20, 26, 0.35),
+    0 18px 30px -24px rgba(178, 92, 52, 0.55);
+}
+
+.ps-wall-tile[data-selected='1'] .ps-wall-ring,
+.ps-wall-tile[data-selected='1'] .ps-wall-badge {
+  opacity: 1;
+}
+
+/* 悬停：只切子元素的 opacity（合成层属性），且只在真有鼠标、且不在拖动/滑行时生效 */
+@media (hover: hover) and (pointer: fine) {
+  .ps-wall-stage[data-moving='0'] .ps-wall-tile:hover .ps-wall-veil {
+    opacity: 1;
+  }
+
+  .ps-wall-stage[data-moving='0'] .ps-wall-tile:hover .ps-wall-cap {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------- 提示条 ------------------------------- */
+
+.ps-wall-hint {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--wall-glass);
+  backdrop-filter: blur(8px) saturate(1.2);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--wall-ink);
+  pointer-events: none;
+  transition: opacity 200ms linear;
+}
+
+.ps-wall:has(.ps-wall-stage[data-moving='1']) .ps-wall-hint {
+  opacity: 0;
+}
+
+/* --------------------------- HUD / 工具条 --------------------------- */
+
+.ps-wall-hud,
+.ps-wall-tools {
+  position: absolute;
+  bottom: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--wall-glass);
+  backdrop-filter: blur(10px) saturate(1.25);
+  box-shadow:
+    0 1px 2px rgba(21, 20, 26, 0.06),
+    0 10px 24px -18px rgba(21, 20, 26, 0.55);
+}
+
+.ps-wall-hud {
+  left: 12px;
+  padding-left: 11px;
+}
+
+.ps-wall-tools {
+  right: 12px;
+}
+
+.ps-wall-hud-item {
+  font-size: 11px;
+  line-height: 1;
+  color: color-mix(in oklab, var(--foreground) 52%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-wall-hud-item.is-on {
+  color: var(--copper);
+  font-weight: 600;
+}
+
+.ps-wall-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 140ms linear,
+    color 140ms linear;
+}
+
+.ps-wall-btn:hover {
+  background: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+
+.ps-wall-btn.is-icon {
+  width: 24px;
+  padding: 0;
+}
+
+.ps-wall-btn.is-primary {
+  background: var(--copper);
+  color: #fff;
+}
+
+.ps-wall-btn.is-primary:hover {
+  background: var(--copper-soft);
+}
+
+@media (max-width: 700px) {
+  .ps-wall-btn-text {
+    display: none;
+  }
+
+  .ps-wall-hint {
+    display: none;
+  }
+
+  .ps-wall-hud,
+  .ps-wall-tools {
+    bottom: 8px;
+    gap: 4px;
+    padding: 5px 7px;
+  }
+
+  .ps-wall-hud {
+    left: 8px;
+  }
+
+  .ps-wall-tools {
+    right: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-wall-img,
+  .ps-wall-veil,
+  .ps-wall-cap,
+  .ps-wall-ring,
+  .ps-wall-badge {
+    transition: none !important;
+  }
+}
+
+/* ============================================================================
+ * 0.7.2 长列表 / 重型容器的跳过渲染工具类
+ *
+ * content-visibility: auto 让浏览器「不在视口内的子树直接跳过样式/布局/绘制」，
+ * 对照片墙、时间线、成片列表这种一次几百个节点的页面是白捡的收益。
+ * 代价：元素在视口外时高度按 contain-intrinsic-size 估算，滚动条会在进入
+ * 视口时轻微跳动 —— 所以给三档预设尺寸，按卡片实际高度挑一档用：
+ *
+ *   .ps-cv      卡片/缩略图流（估算 260px）     <div class="ps-cv">
+ *   .ps-cv-row  列表行（估算 72px）             <div class="ps-cv-row">
+ *   .ps-cv-tall 长文块 / 一屏高一节（估算 640px） <section class="ps-cv-tall">
+ *
+ * 想自己给高度：<div class="ps-cv" style="--ps-cv-size: 320px">
+ * 注意：content-visibility 会隐式带上 contain: layout style paint，
+ * 所以不要套在 position: fixed 的元素、也不要套在需要 overflow 溢出的容器上。
+ * ========================================================================== */
+
+@utility ps-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--ps-cv-size, 260px);
+}
+
+@utility ps-cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--ps-cv-size, 72px);
+}
+
+@utility ps-cv-tall {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--ps-cv-size, 640px);
+}
+
+/* ============================================================================
+ * 0.7.2 排版台：积木缩略图（纯 CSS 图形，不用任何图片）
+ *
+ * 用户说「选择积木的时候可以不用文字描述……搞成图片描述或者是积木描述，一眼更直观」。
+ * 所以 12×24 网格里的每一块都画成一个小色块：
+ *   · 底色永远是纸白 —— 缩略图代表「印出来那张纸」，深浅主题下都该是白的；
+ *   · 颜色只管一件事：铜=版面（序号/标题/照片/图注）、墨=文字、暗房蓝=解读；
+ *   · 照片那块用实心铜，因为它就是画面本身，得一眼认出来。
+ * ========================================================================== */
+
+.ps-mini {
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #fbfaf7;
+  box-shadow: inset 0 0 0 1px rgba(28, 25, 20, 0.13);
+}
+
+.ps-mini-block {
+  position: absolute;
+  border-radius: 1.5px;
+  box-shadow: inset 0 0 0 0.5px rgba(251, 250, 247, 0.7);
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.ps-mini-block[data-tone='copper'] {
+  background: color-mix(in srgb, var(--copper) 55%, #fbfaf7);
+}
+
+.ps-mini-block[data-tone='ink'] {
+  background: color-mix(in srgb, #15141a 42%, #fbfaf7);
+}
+
+.ps-mini-block[data-tone='cool'] {
+  background: color-mix(in srgb, var(--cool) 50%, #fbfaf7);
+}
+
+.ps-mini-block[data-solid='1'] {
+  background: var(--copper);
+}
+
+.ps-mini-block[data-dim='1'] {
+  opacity: 0.18;
+}
+
+.ps-mini-block[data-ghost='1'] {
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, #15141a 38%, #fbfaf7);
+  box-shadow: none;
+}
+
+.ps-mini-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(28, 25, 20, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(28, 25, 20, 0.055) 1px, transparent 1px);
+}
+
+/* 积木格：悬停轻轻浮起（只动 transform / box-shadow，不碰布局），并露出名称气泡 */
+.ps-tile {
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out);
+}
+
+.ps-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--elev-2);
+}
+
+.ps-tile:active {
+  transform: translateY(0);
+}
+
+.ps-tile-tip {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  z-index: 30;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  border-radius: 6px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.ps-tile:hover .ps-tile-tip,
+.ps-tile:focus-visible .ps-tile-tip {
+  opacity: 1;
+}
+
+/* 从积木面板拖到纸上时，落位预览的两种状态 */
+.ps-drop-ok {
+  border: 1.5px dashed var(--copper);
+  background: color-mix(in srgb, var(--copper) 16%, transparent);
+}
+
+.ps-drop-bad {
+  border: 1.5px dashed rgb(225 29 72 / 0.85);
+  background: rgb(244 63 94 / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-tile,
+  .ps-tile:hover,
+  .ps-tile:active {
+    transform: none;
+  }
+
+  .ps-tile-tip {
+    transition: none;
+  }
 }

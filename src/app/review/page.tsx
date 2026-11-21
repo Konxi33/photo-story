@@ -290,7 +290,7 @@ export default function ReviewPage() {
         <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="ps-eyebrow">Review Room</p>
-            <h1 className="ps-display mt-2 text-[26px] text-ink">评审室</h1>
+            <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">评审室</h1>
             <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-mid">
               三位评委各看一次：编辑看能不能读、策展人看挂不挂得住、审片师看能不能印。
               分差越大，越说明这张片子值得再想一遍。

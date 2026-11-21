@@ -17,19 +17,30 @@ import { toast } from 'sonner';
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
+  ChevronRight,
   FolderOpen,
   Grid3x3,
+  Image as ImageIcon,
   Loader2,
-  MousePointer2,
+  Maximize2,
+  Move,
+  MousePointerClick,
   Redo2,
   RotateCcw,
+  Ruler,
   Sparkles,
   Trash2,
+  TriangleAlert,
   Undo2,
   Wand2,
 } from 'lucide-react';
 
 import { AppShell } from '@/components/app-shell';
+import { BLOCK_DRAG_MIME, BlockTile } from '@/components/studio/block-tile';
+import { MiniLayout } from '@/components/studio/mini-layout';
+import { PaperFacts } from '@/components/studio/paper-facts';
+import { PresetCard } from '@/components/studio/preset-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -41,13 +52,14 @@ import {
 } from '@/components/ui/select';
 import { ROUTES } from '@/config/app';
 import { DEFAULT_APP_SETTINGS, STORAGE_KEY_APP_SETTINGS } from '@/config/app';
+import { WORD_PAPER } from '@/config/wordLayout';
 import { KvRepository } from '@/lib/db';
 import type { AppSettings } from '@/types/domain';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import { reviewLayout } from '@/lib/ai/layoutReview';
 import { ModuleGuide } from '@/components/module-guide';
 import { BLOCK_MAP, type PhotoBlockId } from '@/lib/export/blocks';
-import { exportContentCm, exportContentHeightCm } from '@/lib/export/metrics';
+import { exportContentCm, exportContentHeightCm, exportMarginCm } from '@/lib/export/metrics';
 import {
   DEFAULT_BOX,
   GRID_COLS,
@@ -105,6 +117,12 @@ export default function StudioPage() {
   const [layoutName, setLayoutName] = useState('');
   const [busyLayout, setBusyLayout] = useState(false);
   const [sampleId, setSampleId] = useState<string>('');
+
+  // 0.7.2：从右侧「积木」面板拖到纸上的落位预览（半透明块 + 能不能放）
+  const [dropGhost, setDropGhost] = useState<{ id: PhotoBlockId; item: LayoutItem; ok: boolean } | null>(
+    null,
+  );
+  const draggingBlockRef = useRef<PhotoBlockId | null>(null);
 
   const historyRef = useRef<PageLayout[]>([]);
   const futureRef = useRef<PageLayout[]>([]);
@@ -288,6 +306,95 @@ export default function StudioPage() {
     },
     [commit],
   );
+
+  /** 这块积木「默认占多大」——拖到纸上时的初始尺寸，也是面板缩略图上画的那块 */
+  const defaultSize = (id: PhotoBlockId) => {
+    const box = DEFAULT_BOX[id];
+    const min = MIN_BOX[id];
+    return {
+      colSpan: Math.max(box.colSpan, min.colSpan),
+      rowSpan: Math.max(box.rowSpan, min.rowSpan),
+    };
+  };
+
+  const previewItem = (id: PhotoBlockId): LayoutItem => ({ id, col: 0, row: 0, ...defaultSize(id) });
+
+  /* --------------------- 从积木面板拖到纸上（0.7.2） --------------------- */
+
+  const onCanvasDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    const id = draggingBlockRef.current;
+    const canvas = canvasRef.current;
+    if (!id || !canvas) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+
+    const rect = canvas.getBoundingClientRect();
+    const { colSpan, rowSpan } = defaultSize(id);
+    // 让块的中心跟着光标落，比左上角跟着光标更符合直觉
+    const col = Math.round((event.clientX - rect.left) / (rect.width / GRID_COLS) - colSpan / 2);
+    const row = Math.round((event.clientY - rect.top) / (rect.height / GRID_ROWS) - rowSpan / 2);
+
+    const current = layoutRef.current;
+    const proposed = clampItem({ id, col, row, colSpan, rowSpan }, current);
+    const others = current.items.filter((item) => item.id !== id);
+    const ok = !others.some((item) => overlaps(item, proposed));
+    setDropGhost((prev) =>
+      prev &&
+      prev.id === id &&
+      prev.ok === ok &&
+      prev.item.col === proposed.col &&
+      prev.item.row === proposed.row &&
+      prev.item.colSpan === proposed.colSpan
+        ? prev
+        : { id, item: proposed, ok },
+    );
+  };
+
+  const onCanvasDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDropGhost(null);
+  };
+
+  const onCanvasDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const id = (event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingBlockRef.current) as
+      | PhotoBlockId
+      | null;
+    const target = dropGhost;
+    draggingBlockRef.current = null;
+    setDropGhost(null);
+    if (!id || !target || target.id !== id) return;
+
+    const current = layoutRef.current;
+    if (!target.ok) {
+      const blocker = current.items.find(
+        (item) => item.id !== id && overlaps(item, target.item),
+      );
+      toast.error(
+        blocker ? `「${BLOCK_MAP[blocker.id].label}」占着这里，换个地方放` : '这里放不下这一块',
+      );
+      return;
+    }
+
+    // 已经在纸上的块：拖一下就是挪位置；没在纸上的：当成新增
+    const exists = current.items.some((item) => item.id === id);
+    commit({
+      ...current,
+      items: exists
+        ? current.items.map((item) => (item.id === id ? target.item : item))
+        : [...current.items, target.item],
+    });
+    setSelected(id);
+  };
+
+  const onTileDragStart = (id: PhotoBlockId) => {
+    draggingBlockRef.current = id;
+  };
+
+  const onTileDragEnd = () => {
+    draggingBlockRef.current = null;
+    setDropGhost(null);
+  };
 
   const removeBlock = useCallback(
     (id: PhotoBlockId) => {
@@ -577,9 +684,26 @@ export default function StudioPage() {
 
   /* ------------------------------ 渲染 ------------------------------ */
 
-  const unused = toolboxBlocks()
-    .flatMap((group) => group.items)
-    .filter((block) => !layout.items.some((item) => item.id === block.id));
+  // 0.7.2：14 块积木全都进面板（已经在纸上的实心、还没摆上的虚线+加号），不再分两个列表
+  const blocks = useMemo(() => toolboxBlocks().flatMap((group) => group.items), []);
+  const activePreset = useMemo(
+    () =>
+      LAYOUT_PRESETS.find((preset) => layoutSignature(preset.layout) === layoutSignature(layout)) ??
+      null,
+    [layout],
+  );
+  const activeSaved = useMemo(
+    () => layouts.find((row) => layoutSignature(row.layout) === layoutSignature(layout)) ?? null,
+    [layouts, layout],
+  );
+  const currentLayoutName = activeSaved?.name ?? activePreset?.name ?? '自己摆的版式';
+
+  const paperMeta = project ? project.exportSettings : null;
+  const paper = WORD_PAPER[paperMeta?.paperSize ?? 'a4'] ?? WORD_PAPER.a4;
+  const marginCm = paperMeta ? exportMarginCm(paperMeta) : 2.2;
+  const gutterCm = paperMeta?.gutter ?? 0;
+  const orientation = paperMeta?.orientation ?? 'portrait';
+
   const plan = useMemo(
     () =>
       sample
@@ -621,16 +745,33 @@ export default function StudioPage() {
         </div>
       }
     >
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_344px]">
         {/* 左：纸 */}
         <div className="min-w-0">
-          <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
+          <header className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-faint">排版台</p>
               <h1 className="mt-1 text-[26px] font-semibold tracking-tight">这一页，你自己摆</h1>
-              <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-ink-soft">
-                拖块身挪位置，拖右下角改大小，松手自动吸到格子上。摆完点「AI 检查」，让它看看有没有排错。
-                这里只决定每一页照片长什么样，封面、总览、章节页不受影响。
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-soft">
+                <span className="inline-flex items-center gap-1">
+                  <Move className="size-3.5 text-copper" aria-hidden />
+                  拖块身挪位置
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Maximize2 className="size-3.5 text-copper" aria-hidden />
+                  拖右下角改大小
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Sparkles className="size-3.5 text-copper" aria-hidden />
+                  点「AI 检查」排错
+                </span>
+                <span
+                  className="inline-flex items-center gap-1 text-ink-faint"
+                  title="这里只决定每一页照片长什么样，封面、总览、章节页不受影响。"
+                >
+                  <MousePointerClick className="size-3.5" aria-hidden />
+                  只作用于照片页
+                </span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -649,41 +790,40 @@ export default function StudioPage() {
             </div>
           </header>
 
-          <ModuleGuide moduleId="studio" className="mb-4" />
+          <ModuleGuide moduleId="studio" className="mb-3" />
 
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] text-ink-faint">模板：</span>
-            {LAYOUT_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                title={preset.hint}
-                onClick={() => applyPreset(preset.id)}
-                className="rounded-full border border-line/70 px-2.5 py-1 text-[12px] text-ink-soft transition hover:border-ink/30 hover:bg-surface-2 hover:text-ink"
-              >
-                {preset.name}
-              </button>
-            ))}
+          {/* 一条 bar 说清三件事：用的是哪套版式、存没存进项目、画布上是哪张样片 */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line/60 bg-surface px-2.5 py-1.5">
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-surface-2/60 px-1.5 py-1"
+              title={activePreset ? `${activePreset.name} —— ${activePreset.hint}` : '自己摆的版式'}
+            >
+              <MiniLayout items={layout.items} className="w-[14px]" />
+              <span className="text-[11.5px] font-medium text-ink">{currentLayoutName}</span>
+            </span>
             {fromTemplate ? (
-              <span className="ml-1 text-[11px] text-amber-600 dark:text-amber-400">
-                现在是「摄影集」模板，还没存进项目 —— 摆好点右上角「保存排版」
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] text-amber-700 dark:text-amber-400"
+                title="摆好点右上角「保存排版」"
+              >
+                <TriangleAlert className="size-3" aria-hidden />
+                还没存进项目
               </span>
             ) : null}
-          </div>
 
-          {/* 样片：画布上的照片可以换，看不同比例在这套版式里什么样 */}
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line/60 bg-surface px-3 py-2">
-            <span className="text-[11px] text-ink-faint">画布上的样片</span>
+            <span className="mx-0.5 h-4 w-px shrink-0 bg-line" />
+
+            <ImageIcon className="size-3.5 shrink-0 text-ink-faint" aria-hidden />
             <button
               type="button"
               onClick={() => switchSample(-1)}
               disabled={renderable.length < 2}
               aria-label="上一张样片"
-              className="rounded-full border border-line/70 px-2 py-0.5 text-[11px] text-ink-soft transition hover:border-ink/30 hover:text-ink disabled:opacity-40"
+              className="grid size-5 shrink-0 place-items-center rounded-full text-ink-faint transition hover:bg-surface-2 hover:text-ink disabled:opacity-40"
             >
-              上一张
+              <ChevronLeft className="size-3.5" aria-hidden />
             </button>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
+            <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-soft">
               {sample
                 ? `${sampleAnalysis?.title || sample.fileName}${sampleIndex >= 0 ? ` · 第 ${sampleIndex + 1}/${renderable.length} 张` : ''}`
                 : '这个项目还没有可显示的照片'}
@@ -693,9 +833,9 @@ export default function StudioPage() {
               onClick={() => switchSample(1)}
               disabled={renderable.length < 2}
               aria-label="下一张样片"
-              className="rounded-full border border-line/70 px-2 py-0.5 text-[11px] text-ink-soft transition hover:border-ink/30 hover:text-ink disabled:opacity-40"
+              className="grid size-5 shrink-0 place-items-center rounded-full text-ink-faint transition hover:bg-surface-2 hover:text-ink disabled:opacity-40"
             >
-              下一张
+              <ChevronRight className="size-3.5" aria-hidden />
             </button>
           </div>
 
@@ -703,9 +843,13 @@ export default function StudioPage() {
           <div className="rounded-2xl border border-line/60 bg-surface-2/60 p-4">
             <div
               ref={canvasRef}
+              data-paper="1"
               className="relative mx-auto w-full max-w-[560px] overflow-hidden rounded-lg bg-[#fbfaf7] shadow-[0_18px_50px_-24px_rgba(0,0,0,0.45)] ring-1 ring-black/5"
               style={{ aspectRatio: `${contentCm} / ${contentHeightCm}` }}
               onPointerDown={() => setSelected(null)}
+              onDragOver={onCanvasDragOver}
+              onDragLeave={onCanvasDragLeave}
+              onDrop={onCanvasDrop}
             >
               {/* 格线只在编辑时可见，不打印 */}
               <div
@@ -717,6 +861,34 @@ export default function StudioPage() {
                   backgroundSize: `${100 / GRID_COLS}% ${100 / GRID_ROWS}%`,
                 }}
               />
+
+              {/* 从右侧积木面板拖进来时的落位预览：半透明块 + 能不能放的提示 */}
+              {dropGhost ? (
+                <div
+                  aria-hidden
+                  className={[
+                    'pointer-events-none absolute z-40 rounded-[3px]',
+                    dropGhost.ok ? 'ps-drop-ok' : 'ps-drop-bad',
+                  ].join(' ')}
+                  style={{
+                    left: `${(dropGhost.item.col / GRID_COLS) * 100}%`,
+                    top: `${(dropGhost.item.row / GRID_ROWS) * 100}%`,
+                    width: `${(dropGhost.item.colSpan / GRID_COLS) * 100}%`,
+                    height: `${(dropGhost.item.rowSpan / GRID_ROWS) * 100}%`,
+                  }}
+                >
+                  <span
+                    className={[
+                      'absolute left-1 whitespace-nowrap rounded bg-black/70 px-1 py-0.5 text-[9px] text-white',
+                      // 贴近纸底时把角标翻到块的上面，免得被纸边裁掉
+                      dropGhost.item.row + dropGhost.item.rowSpan > GRID_ROWS - 2 ? 'bottom-full mb-0.5' : 'top-1',
+                    ].join(' ')}
+                  >
+                    {dropGhost.item.colSpan}×{dropGhost.item.rowSpan}
+                    {dropGhost.ok ? '' : ' 放不下'}
+                  </span>
+                </div>
+              ) : null}
 
               {ghost ? (
                 <div
@@ -740,6 +912,7 @@ export default function StudioPage() {
                 return (
                   <div
                     key={item.id}
+                    data-block={item.id}
                     onPointerDown={(event) => onPointerDown(event, item, 'move')}
                     className={[
                       'absolute cursor-grab touch-none select-none overflow-hidden rounded-[3px] p-[2.5%] text-[10px] leading-snug',
@@ -784,80 +957,111 @@ export default function StudioPage() {
                 );
               })}
             </div>
-            <p className="mt-2 text-center text-[11px] text-ink-faint">
-              拖动积木改位置 · 选中后拉右下角小方块改大小 · 方向键微调 1 格 · 拖到红框说明那里放不下
-            </p>
-            <p className="mt-1 text-center text-[11px] text-ink-faint">
-              {contentCm.toFixed(1)} × {contentHeightCm.toFixed(1)} cm 版心 · {GRID_COLS} 列 × {GRID_ROWS} 行
-              {plan && plan.warnings.length > 0 ? ` · ${plan.warnings[0]}` : ''}
-            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-ink-faint">
+              <span className="inline-flex items-center gap-1">
+                <Move className="size-3" aria-hidden />
+                拖动改位置 · 方向键微调 1 格
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Ruler className="size-3" aria-hidden />
+                {contentCm.toFixed(1)} × {contentHeightCm.toFixed(1)} cm · {GRID_COLS}×{GRID_ROWS} 格
+              </span>
+              {plan && plan.warnings.length > 0 ? (
+                <span
+                  className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"
+                  title={plan.warnings.join(' / ')}
+                >
+                  <TriangleAlert className="size-3" aria-hidden />
+                  {plan.warnings[0]}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
 
         {/* 右：工具箱 */}
-        <aside className="min-w-0 space-y-4">
-          <section className="rounded-2xl border border-line/60 bg-surface p-3">
+        <aside className="min-w-0 space-y-3">
+          <section className="rounded-2xl border border-line/60 bg-surface p-2.5">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
-              <Grid3x3 className="size-4 text-ink-faint" />
-              纸上的积木
+              <Grid3x3 className="size-4 text-ink-faint" aria-hidden />
+              积木
+              <span className="ml-auto text-[10.5px] font-normal tabular-nums text-ink-faint">
+                {layout.items.length}/{blocks.length} 在纸上
+              </span>
             </h2>
-            <ul className="mt-2 space-y-1">
-              {layout.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(item.id)}
-                    className={[
-                      'flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[12px] transition',
-                      selected === item.id ? 'bg-amber-50 text-ink ring-1 ring-amber-300/70' : 'hover:bg-surface-2',
-                    ].join(' ')}
-                  >
-                    <span className="truncate">{BLOCK_MAP[item.id].label}</span>
-                    <span className="ml-2 shrink-0 text-[10px] text-ink-faint">
-                      {item.colSpan}×{item.rowSpan}
-                    </span>
-                  </button>
-                </li>
+            <p className="mt-0.5 text-[10.5px] text-ink-faint">
+              点一下放上去 · 或者拖到纸上挑位置
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {blocks.map((block) => (
+                <BlockTile
+                  key={block.id}
+                  id={block.id}
+                  item={layout.items.find((item) => item.id === block.id)}
+                  preview={previewItem(block.id)}
+                  selected={selected === block.id}
+                  onPick={(id) => {
+                    if (layoutRef.current.items.some((item) => item.id === id)) setSelected(id);
+                    else addBlock(id);
+                  }}
+                  onDragStart={onTileDragStart}
+                  onDragEnd={onTileDragEnd}
+                />
               ))}
-            </ul>
+            </div>
           </section>
 
-          <section className="rounded-2xl border border-line/60 bg-surface p-3">
+          <section className="rounded-2xl border border-line/60 bg-surface p-2.5">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
-              <FolderOpen className="size-4 text-ink-faint" />
+              <FolderOpen className="size-4 text-ink-faint" aria-hidden />
               方案库
+              <span className="ml-auto text-[10.5px] font-normal tabular-nums text-ink-faint">
+                {layouts.length} 套我存的
+              </span>
             </h2>
-            <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
-              摆好的一套版式存起来，换项目、换册子都能一键套用。
-            </p>
 
-            {layouts.length > 0 ? (
-              <div className="mt-2 space-y-1.5">
-                {layouts.slice(0, 6).map((row) => (
-                  <div key={row.id} className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleApplyLayout(row.id)}
-                      className="min-w-0 flex-1 truncate rounded-lg border border-line/60 px-2 py-1 text-left text-[12px] text-ink-soft transition hover:border-ink/30 hover:text-ink"
-                      title={`套用「${row.name}」`}
-                    >
-                      {row.name}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleRemoveLayout(row.id)}
-                      disabled={busyLayout}
-                      aria-label={`删除方案「${row.name}」`}
-                      className="rounded-md p-1 text-ink-faint transition hover:text-red-600 disabled:opacity-40"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                ))}
+            <div className="ps-scroll-thin mt-2 max-h-[440px] space-y-2 overflow-y-auto pr-1">
+              <div>
+                <p className="ps-cap mb-1">内置模板</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {LAYOUT_PRESETS.map((preset) => (
+                    <PresetCard
+                      key={preset.id}
+                      name={preset.name}
+                      items={preset.layout.items}
+                      hint={preset.hint}
+                      active={
+                        activePreset?.id === preset.id &&
+                        layoutSignature(preset.layout) === layoutSignature(layout)
+                      }
+                      onApply={() => applyPreset(preset.id)}
+                    />
+                  ))}
+                </div>
               </div>
-            ) : (
-              <p className="mt-2 text-[11px] text-ink-faint">还没有存过方案。</p>
-            )}
+
+              <div>
+                <p className="ps-cap mb-1">我存的</p>
+                {layouts.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-line/70 px-2 py-2 text-[10.5px] text-ink-faint">
+                    摆好一套，下面起个名字存起来 —— 换项目、换册子都能一键套用
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {layouts.map((row) => (
+                      <PresetCard
+                        key={row.id}
+                        name={row.name}
+                        items={row.layout.items}
+                        active={layoutSignature(row.layout) === layoutSignature(layout)}
+                        onApply={() => handleApplyLayout(row.id)}
+                        onRemove={() => void handleRemoveLayout(row.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="mt-2 flex items-center gap-1.5">
               <Input
@@ -867,34 +1071,15 @@ export default function StudioPage() {
                 aria-label="方案名字"
                 className="h-8 text-[12px]"
               />
-              <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => void handleSaveLayout()} disabled={busyLayout || !project}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0"
+                onClick={() => void handleSaveLayout()}
+                disabled={busyLayout || !project}
+              >
                 存为方案
               </Button>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-line/60 bg-surface p-3">
-            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
-              <MousePointer2 className="size-4 text-ink-faint" />
-              还没摆上的
-            </h2>
-            <p className="mt-1 text-[11px] text-ink-faint">点一下就放到纸上的空位。</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {unused.length === 0 ? (
-                <span className="text-[11px] text-ink-faint">全都摆上了</span>
-              ) : (
-                unused.map((block) => (
-                  <button
-                    key={block.id}
-                    type="button"
-                    title={block.hint}
-                    onClick={() => addBlock(block.id)}
-                    className="rounded-full border border-line/70 px-2.5 py-1 text-[11.5px] text-ink-soft transition hover:border-ink/30 hover:bg-surface-2 hover:text-ink"
-                  >
-                    + {block.label}
-                  </button>
-                ))
-              )}
             </div>
           </section>
 
@@ -928,16 +1113,28 @@ export default function StudioPage() {
             </section>
           ) : null}
 
-          <section className="rounded-2xl border border-line/60 bg-surface p-3 text-[11.5px] leading-relaxed text-ink-soft">
-            <h2 className="mb-1 text-[13px] font-semibold text-ink">纸面上的规矩</h2>
-            <p>· 积木不能互相压住，压住的话拖不动（会原地弹回）。</p>
-            <p>· 格子太小会先缩字号，缩到 7.5pt 还放不下就截断，并在导出报告里说明。</p>
-            <p>· 一张照片连同它的文字永远只占一页，不会被拆到两页。</p>
+          <section className="rounded-2xl border border-line/60 bg-surface p-2.5">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold">
+              <Ruler className="size-4 text-ink-faint" aria-hidden />
+              纸面的规矩
+            </h2>
+            <div className="mt-2">
+              <PaperFacts
+                paperLabel={paper.label}
+                paperWidthCm={paper.widthCm}
+                paperHeightCm={paper.heightCm}
+                orientation={orientation}
+                marginCm={marginCm}
+                gutterCm={gutterCm}
+                cols={GRID_COLS}
+                rows={GRID_ROWS}
+              />
+            </div>
             <Link
               href={ROUTES.projects}
-              className="mt-2 inline-flex items-center gap-1 text-ink underline decoration-dotted underline-offset-4"
+              className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-ink-soft underline decoration-dotted underline-offset-4 hover:text-ink"
             >
-              <ArrowLeft className="size-3.5" />
+              <ArrowLeft className="size-3.5" aria-hidden />
               回项目列表
             </Link>
           </section>
@@ -948,6 +1145,14 @@ export default function StudioPage() {
 }
 
 /* ------------------------------ 积木预览 ------------------------------ */
+
+/** 版式的指纹：只比「谁、在哪、多大」，用来判断当前画布对应哪一套模板 */
+function layoutSignature(value: PageLayout): string {
+  return value.items
+    .map((item) => `${item.id}:${item.col},${item.row},${item.colSpan},${item.rowSpan}`)
+    .sort()
+    .join('|');
+}
 
 function BlockPreview({
   id,

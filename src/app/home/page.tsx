@@ -1,16 +1,19 @@
 // src/app/home/page.tsx
-// 主菜单：点左上角「照片故事」进入。
-// 0.5.1：杂志封面式双栏版式——左侧刊头（缺笔字标题 + 说明 + 入口），
-// 右侧「最近项目」竖排清单，进场按 刊头 → 说明 → 清单 的顺序错峰浮现。
-// 相比之前的单栏居中版，宽屏下不再有大片空白，只有一个项目时也不会左右失衡。
+// 0.7.0「陶土 + 暗房」：首页整体重做。
+//  - 左侧刊头（断笔标题 + 主行动 + 三项读数），右侧「最近项目」扇形卡片堆
+//  - 中部是工作台地图（每一步管什么），底部是最近项目的横向轨道
+//  - 所有入场错峰用 --ps-delay / ps-reveal，位移类动画一律 backwards，避免劫持 fixed
+// 数据逻辑与 0.6.x 完全一致（ProjectRepository / PhotoRepository / AssetRepository），
+// 只换皮与排版，不改取数路径。
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowUpRight,
   BookOpen,
+  Camera,
   ChartLine,
   Compass,
   FlaskConical,
@@ -19,6 +22,7 @@ import {
   Images,
   LayoutGrid,
   Plus,
+  Sparkles,
   Swords,
 } from 'lucide-react';
 
@@ -26,9 +30,10 @@ import { AppShell } from '@/components/app-shell';
 import { CountUp } from '@/components/ui/count-up';
 import { FadeImg } from '@/components/ui/fade-img';
 import { APP_VERSION, ROUTES } from '@/config/app';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { MODULES } from '@/config/modules';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
-import { cn, withTimeout } from '@/lib/utils';
+import { withTimeout } from '@/lib/utils';
 import type { Photo, ProjectSummary } from '@/types/domain';
 
 interface Card {
@@ -123,58 +128,61 @@ export default function HomePage() {
     () => (cards ?? []).reduce((sum, c) => sum + c.photoCount, 0),
     [cards],
   );
+  const totalScored = useMemo(
+    () => (cards ?? []).reduce((sum, c) => sum + c.scored, 0),
+    [cards],
+  );
+
+  /** 扇形卡片堆：取前三张有封面的项目 */
+  const fanned = useMemo(() => (cards ?? []).filter((c) => c.coverUrl).slice(0, 3), [cards]);
 
   return (
     <AppShell showTopBar={false}>
-      <div className="relative flex min-h-[calc(100dvh-1px)] flex-col px-7 pt-10 pb-10 md:px-12 md:pt-12">
-        {/* 顶部：品牌行 */}
+      <div className="ps-stage relative min-h-[calc(100dvh-1px)] px-6 pt-8 pb-14 md:px-10 md:pt-10">
+        {/* 环境光：陶土暖光 + 冷调补光，纯装饰 */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] overflow-hidden">
+          <div className="ps-hero-glow" />
+        </div>
+
+        {/* ── 顶部品牌行 ───────────────────────────────────────────── */}
         <header className="flex items-center justify-between">
-          <div
-            className="ps-enter flex items-center gap-2.5"
-            style={{ ['--ps-delay' as string]: '0ms' }}
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-ink text-paper shadow-[0_2px_10px_-4px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-8 w-8 items-center justify-center rounded-[10px] bg-ink text-paper shadow-[0_2px_10px_-4px_rgba(0,0,0,0.5)]">
               <Images className="h-[15px] w-[15px]" strokeWidth={1.7} />
+              <span className="absolute -right-0.5 -bottom-0.5 h-1.5 w-1.5 rounded-full bg-copper ring-2 ring-[var(--color-paper)]" />
             </span>
             <span className="text-[13px] font-semibold tracking-[-0.01em]">照片故事</span>
+            <span className="ps-chip ml-1 h-6 px-2 text-[10.5px] tabular-nums">v{APP_VERSION}</span>
           </div>
 
-          <div
-            className="ps-enter flex items-center gap-5 text-[11px] text-ink-faint"
-            style={{ ['--ps-delay' as string]: '60ms' }}
-          >
-            <span className="hidden sm:inline tabular-nums">v{APP_VERSION}</span>
-            <Link href="/changelog" className="transition-colors duration-200 hover:text-ink">
+          <nav className="flex items-center gap-2 text-[11.5px]">
+            {/* 0.7.1：首页也有一个外观开关，不用先钻进设置页 */}
+            <ThemeToggle />
+            <Link href="/changelog" className="ps-chip">
               更新日志
             </Link>
-            <Link href="/settings" className="transition-colors duration-200 hover:text-ink">
+            <Link href="/settings" className="ps-chip">
               设置
             </Link>
-          </div>
+          </nav>
         </header>
 
-        {/* 主体：左刊头 + 右清单 */}
-        <div className="grid flex-1 items-center gap-10 py-10 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.86fr)] xl:gap-16 xl:py-0">
-          {/* 刊头 */}
+        {/* ── 英雄区：刊头 + 卡片堆 ─────────────────────────────────── */}
+        <section className="grid items-center gap-12 pt-12 pb-16 lg:grid-cols-[1.12fr_0.88fr] lg:gap-16 lg:pt-16">
           <div className="min-w-0">
-            <p className="ps-enter ps-eyebrow" style={{ ['--ps-delay' as string]: '120ms' }}>
+            <p className="ps-enter ps-cap flex items-center gap-2" style={{ '--ps-delay': '40ms' } as CSSProperties}>
+              <Sparkles className="h-3 w-3 text-copper" strokeWidth={2} />
               Photo Story · 本地相册成书
             </p>
 
-            {/* 残缺字：轮廓完整、笔画被竖向切开，形成「断裂但仍可读」的标题 */}
+            {/* 断笔标题：整行保留 0.5.x 的「竖向切开」识别度，
+                0.7.0 去掉了叠在后面的描边副本——两层字错开会显得脏。 */}
             <div
-              className="ps-enter relative mt-4 w-fit select-none"
-              style={{ ['--ps-delay' as string]: '180ms' }}
+              className="ps-enter relative mt-5 w-fit select-none"
+              style={{ '--ps-delay': '110ms' } as CSSProperties}
             >
-              <span
-                aria-hidden
-                className="ps-serif absolute inset-0 text-[52px] leading-[0.98] font-semibold tracking-[0.1em] text-ink/12 md:text-[86px]"
-                style={{ WebkitTextStroke: '1px currentColor' }}
-              >
-                照片故事
-              </span>
               <h1
-                className="ps-serif relative text-[52px] leading-[0.98] font-semibold tracking-[0.1em] text-ink md:text-[86px]"
+                className="ps-serif ps-display relative text-[46px] leading-[0.98] tracking-[0.06em] text-ink md:text-[76px]"
                 style={{
                   WebkitMaskImage:
                     'repeating-linear-gradient(90deg, #000 0 7%, transparent 7% 10.5%)',
@@ -183,162 +191,179 @@ export default function HomePage() {
               >
                 照片故事
               </h1>
+              <span
+                aria-hidden
+                className="absolute -right-3 -bottom-2 h-[3px] w-16 rounded-full bg-gradient-to-r from-copper to-transparent md:-right-4 md:w-24"
+              />
             </div>
 
             <p
-              className="ps-enter mt-6 max-w-[30rem] text-[13.5px] leading-relaxed text-ink-mid"
-              style={{ ['--ps-delay' as string]: '260ms' }}
+              className="ps-enter mt-7 max-w-[30rem] text-[13.5px] leading-[1.75] text-ink-mid"
+              style={{ '--ps-delay': '190ms' } as CSSProperties}
             >
-              照片留在本地，文字由模型来写。把一次旅行、一段日子的照片放进来，排成可以直接打印的一册。
+              照片留在本地，文字由模型来写。把一次旅行、一段日子的照片放进来，
+              排成可以直接打印的一册。
             </p>
 
             <div
               className="ps-enter mt-8 flex flex-wrap items-center gap-2.5"
-              style={{ ['--ps-delay' as string]: '330ms' }}
+              style={{ '--ps-delay': '250ms' } as CSSProperties}
             >
               <Link
                 href={ROUTES.projects}
-                className="ps-pressable group inline-flex items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-[12.5px] font-medium text-paper shadow-[0_2px_10px_-4px_rgba(0,0,0,0.55)] transition-shadow duration-300 hover:shadow-[0_10px_26px_-12px_rgba(0,0,0,0.6)]"
+                className="ps-pressable ps-sheen group inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[12.5px] font-medium text-primary-foreground shadow-[0_3px_12px_-5px_rgba(0,0,0,0.55)] transition-shadow duration-300 hover:shadow-[0_12px_28px_-14px_rgba(0,0,0,0.6)]"
               >
                 进入项目
-                <ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-300 ease-[var(--ease-spring)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                <ArrowUpRight className="ps-arrow h-3.5 w-3.5" />
               </Link>
-              <Link
-                href="/gallery"
-                className="ps-pressable rounded-full border border-line/80 bg-surface/50 px-5 py-2.5 text-[12.5px] text-ink-mid backdrop-blur-sm transition-colors duration-200 hover:border-ink/20 hover:text-ink"
-              >
+              <Link href="/gallery" className="ps-chip h-9 px-4 text-[12px]">
+                <Images className="h-3.5 w-3.5" strokeWidth={1.7} />
                 照片库
               </Link>
-              <Link
-                href="/score"
-                className="ps-pressable rounded-full border border-line/80 bg-surface/50 px-5 py-2.5 text-[12.5px] text-ink-mid backdrop-blur-sm transition-colors duration-200 hover:border-ink/20 hover:text-ink"
-              >
+              <Link href="/score" className="ps-chip h-9 px-4 text-[12px]">
+                <Gauge className="h-3.5 w-3.5" strokeWidth={1.7} />
                 评分
               </Link>
             </div>
 
-            {totalPhotos > 0 && (
-              <p
-                className="ps-enter mt-6 flex items-center gap-1.5 text-[11.5px] text-ink-faint"
-                style={{ ['--ps-delay' as string]: '390ms' }}
-              >
-                共 <CountUp value={totalPhotos} className="tabular-nums" /> 张照片
-                {cards && cards.length > 0 && (
-                  <span className="text-ink-faint/60">· {cards.length} 个项目</span>
-                )}
-              </p>
-            )}
+            {/* 三项读数 */}
+            <dl
+              className="ps-enter mt-10 flex flex-wrap items-end gap-x-10 gap-y-5"
+              style={{ '--ps-delay': '320ms' } as CSSProperties}
+            >
+              <div>
+                <dt className="ps-cap">项目</dt>
+                <dd className="ps-stat mt-1.5 text-[26px]">
+                  {cards === null ? <span className="ps-skeleton inline-block h-6 w-8" /> : cards.length}
+                </dd>
+              </div>
+              <div className="h-9 w-px bg-[var(--hairline)]" />
+              <div>
+                <dt className="ps-cap">照片</dt>
+                <dd className="ps-stat mt-1.5 text-[26px]">
+                  {cards === null ? (
+                    <span className="ps-skeleton inline-block h-6 w-12" />
+                  ) : (
+                    <CountUp value={totalPhotos} />
+                  )}
+                </dd>
+              </div>
+              <div className="h-9 w-px bg-[var(--hairline)]" />
+              <div>
+                <dt className="ps-cap">已评分</dt>
+                <dd className="ps-stat mt-1.5 text-[26px]">
+                  {cards === null ? (
+                    <span className="ps-skeleton inline-block h-6 w-10" />
+                  ) : (
+                    <CountUp value={totalScored} />
+                  )}
+                </dd>
+              </div>
+            </dl>
           </div>
 
-          {/* 最近项目：竖排清单 */}
-          <section className="min-w-0">
-            <div
-              className="ps-enter mb-3 flex items-end justify-between"
-              style={{ ['--ps-delay' as string]: '360ms' }}
-            >
-              <p className="ps-eyebrow">最近项目</p>
-              <Link
-                href={ROUTES.projects}
-                className="group inline-flex items-center gap-1 text-[11px] text-ink-faint transition-colors hover:text-ink"
-              >
-                全部
-                <ArrowUpRight className="h-3 w-3 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </Link>
-            </div>
+          {/* 右侧：光圈环 + 最近三张封面扇形堆 */}
+          <div
+            className="ps-enter relative mx-auto h-[340px] w-full max-w-[420px] lg:h-[420px]"
+            style={{ '--ps-delay': '220ms' } as CSSProperties}
+          >
+            <div aria-hidden className="ps-aperture absolute inset-x-0 top-1/2 mx-auto aspect-square w-[86%] -translate-y-1/2 opacity-70" />
 
-            {cards === null ? (
-              <div className="grid gap-2">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="ps-skeleton h-[76px] rounded-xl" />
-                ))}
+            {fanned.length === 0 ? (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Link
+                  href={ROUTES.projects}
+                  className="ps-card ps-card-lift group flex w-[76%] flex-col items-center gap-3 px-6 py-10 text-center"
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-ink-mid">
+                    <Camera className="h-5 w-5" strokeWidth={1.6} />
+                  </span>
+                  <span className="text-[13px] font-medium text-ink">还没有项目</span>
+                  <span className="text-[11.5px] leading-relaxed text-ink-faint">
+                    新建一个项目，把照片放进来自动成册
+                  </span>
+                  <span className="ps-chip mt-1 border-copper/30 text-copper">
+                    <Plus className="h-3 w-3" />
+                    新建项目
+                  </span>
+                </Link>
               </div>
-            ) : cards.length === 0 ? (
-              <Link
-                href={ROUTES.projects}
-                className="group flex items-center justify-center gap-2 rounded-xl border border-dashed border-line/80 py-10 text-[12px] text-ink-faint transition-colors duration-300 hover:border-ink/25 hover:text-ink"
-              >
-                <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" />
-                还没有项目，点这里新建
-              </Link>
             ) : (
-              <ul className="grid gap-2">
-                {cards.map((card, index) => (
-                  <li
-                    key={card.id}
-                    className="ps-enter"
-                    style={{ ['--ps-delay' as string]: `${420 + index * 55}ms` }}
-                  >
+              <div className="absolute inset-0 flex items-center justify-center">
+                {fanned.map((card, index) => {
+                  const center = (fanned.length - 1) / 2;
+                  const offset = index - center;
+                  return (
                     <Link
+                      key={card.id}
                       href={ROUTES.project(card.id)}
-                      className="ps-pressable group flex items-center gap-3 rounded-xl border border-line/50 bg-surface-2/40 p-2 transition-colors duration-300 hover:border-ink/15 hover:bg-surface-2/70"
+                      className="ps-pressable absolute w-[62%] overflow-hidden rounded-[18px] border border-white/60 bg-surface shadow-[0_24px_60px_-30px_rgba(20,19,26,0.45),0_2px_6px_-2px_rgba(20,19,26,0.15)] transition-[transform,box-shadow] duration-[520ms] ease-[var(--ease-spring)] hover:z-30 hover:!translate-y-[-14px] hover:shadow-[0_32px_80px_-32px_rgba(20,19,26,0.55)]"
+                      style={{
+                        transform: `translateX(${offset * 34}%) translateY(${Math.abs(offset) * 10}px) rotate(${offset * 6}deg)`,
+                        zIndex: 10 - Math.abs(index - center) * 1,
+                        aspectRatio: '4 / 3',
+                      }}
                     >
-                      <span className="relative h-[60px] w-[78px] shrink-0 overflow-hidden rounded-lg bg-surface-3">
-                        {card.coverUrl ? (
-                          <FadeImg
-                            src={card.coverUrl}
-                            alt={card.name}
-                            className="h-full w-full object-cover transition-transform duration-[900ms] ease-[var(--ease-out)] group-hover:scale-[1.06]"
-                          />
-                        ) : (
-                          <span className="flex h-full w-full items-center justify-center">
-                            <Images className="h-4 w-4 text-ink-faint/70" />
-                          </span>
-                        )}
-                      </span>
-
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12.5px] font-medium text-ink">
+                      {card.coverUrl ? (
+                        <FadeImg
+                          src={card.coverUrl}
+                          alt={card.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center bg-surface-2">
+                          <Images className="h-5 w-5 text-ink-faint/70" />
+                        </span>
+                      )}
+                      <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/62 via-black/24 to-transparent px-3 pt-8 pb-2.5">
+                        <span className="truncate text-[11.5px] font-medium text-white/95">
                           {card.name}
                         </span>
-                        <span className="mt-0.5 block text-[10.5px] text-ink-faint tabular-nums">
-                          {card.photoCount} 张 · {card.scored} 张已评
+                        <span className="shrink-0 text-[10.5px] tabular-nums text-white/72">
+                          {card.photoCount} 张
                         </span>
                       </span>
-
-                      <span
-                        className={cn(
-                          'shrink-0 pr-1 text-[13px] font-semibold tabular-nums',
-                          card.average === null ? 'text-ink-faint/50' : 'text-ink',
-                        )}
-                      >
-                        {card.average === null ? '—' : card.average.toFixed(1)}
-                      </span>
-
-                      <ArrowUpRight className="mr-1 h-3.5 w-3.5 shrink-0 text-ink-faint/0 transition-all duration-300 ease-[var(--ease-spring)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-ink-faint" />
                     </Link>
-                  </li>
-                ))}
-              </ul>
+                  );
+                })}
+              </div>
             )}
-          </section>
-        </div>
-
-        {/* 工作台一览：0.5.5 新增 —— 回答「这些大功能到底是干什么用的」。
-            每个模块一句话说清用途，点进去还能看到三步上手。 */}
-        <section className="mt-4 border-t border-line/40 pt-6" aria-label="工作台一览">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <p className="ps-eyebrow">工作台 · 每一步管什么</p>
-            <p className="text-[11px] text-ink-faint">挑照片 → 写文案 → 打分 → 编排 → 选片 → 导出</p>
           </div>
-          <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
+        </section>
+
+        {/* ── 工作台地图 ───────────────────────────────────────────── */}
+        <section aria-label="工作台地图" className="pb-14">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="ps-cap">工作台 · 每一步管什么</p>
+              <h2 className="ps-display mt-2 text-[19px] text-ink">
+                挑照片 → 写文案 → 打分 → 编排 → 选片 → 导出
+              </h2>
+            </div>
+            <Link href={ROUTES.projects} className="ps-chip">
+              全部模块
+              <ArrowUpRight className="ps-arrow h-3 w-3" />
+            </Link>
+          </div>
+
+          <ul className="ps-reveal grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
             {MODULES.filter((m) => m.id !== 'projects').map((item, index) => {
               const Icon = MODULE_ICONS[item.id] ?? LayoutGrid;
               return (
-                <li
-                  key={item.id}
-                  className="ps-enter"
-                  style={{ ['--ps-delay' as string]: `${440 + index * 40}ms` }}
-                >
+                <li key={item.id} style={{ '--i': index } as CSSProperties}>
                   <Link
                     href={item.href}
-                    className="ps-pressable group flex h-full items-center gap-2.5 rounded-xl border border-line/50 bg-surface-2/35 px-3 py-2 transition-[border-color,background-color,transform] duration-300 hover:-translate-y-[2px] hover:border-ink/15 hover:bg-surface-2/70"
+                    className="group ps-card ps-card-lift flex h-full items-start gap-3 px-4 py-3.5"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-3/70 text-ink-mid transition-colors duration-300 group-hover:text-ink">
-                      <Icon className="h-3.5 w-3.5" strokeWidth={1.7} />
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-surface-2 text-ink-mid transition-colors duration-300 group-hover:bg-copper/12 group-hover:text-copper">
+                      <Icon className="h-[15px] w-[15px]" strokeWidth={1.7} />
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-[12.5px] font-medium text-ink">{item.name}</span>
-                      <span className="block truncate text-[10.5px] leading-snug text-ink-faint">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[12.5px] font-medium text-ink">{item.name}</span>
+                        <ArrowUpRight className="ps-arrow h-3 w-3 text-ink-faint" />
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-snug text-ink-faint">
                         {item.tagline}
                       </span>
                     </span>
@@ -347,6 +372,73 @@ export default function HomePage() {
               );
             })}
           </ul>
+        </section>
+
+        {/* ── 最近项目：横向轨道 ───────────────────────────────────── */}
+        <section aria-label="最近项目">
+          <div className="mb-4 flex items-end justify-between">
+            <p className="ps-cap">最近项目</p>
+            <Link
+              href={ROUTES.projects}
+              className="group inline-flex items-center gap-1 text-[11px] text-ink-faint transition-colors hover:text-ink"
+            >
+              全部
+              <ArrowUpRight className="ps-arrow h-3 w-3" />
+            </Link>
+          </div>
+
+          {cards === null ? (
+            <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <li key={i} className="ps-skeleton h-[132px] rounded-[16px]" />
+              ))}
+            </ul>
+          ) : cards.length === 0 ? (
+            <Link
+              href={ROUTES.projects}
+              className="group flex items-center justify-center gap-2 rounded-[16px] border border-dashed border-[var(--hairline)] py-12 text-[12px] text-ink-faint transition-colors duration-300 hover:border-copper/30 hover:text-ink"
+            >
+              <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" />
+              还没有项目，点这里新建
+            </Link>
+          ) : (
+            <ul className="ps-reveal grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+              {cards.map((card, index) => (
+                <li key={card.id} style={{ '--i': index } as CSSProperties}>
+                  <Link
+                    href={ROUTES.project(card.id)}
+                    className="group ps-card ps-card-lift block overflow-hidden"
+                  >
+                    <span className="relative block aspect-[16/10] overflow-hidden bg-surface-3">
+                      {card.coverUrl ? (
+                        <FadeImg
+                          src={card.coverUrl}
+                          alt={card.name}
+                          className="h-full w-full object-cover transition-transform duration-[900ms] ease-[var(--ease-out)] group-hover:scale-[1.05]"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center">
+                          <Images className="h-4 w-4 text-ink-faint/70" />
+                        </span>
+                      )}
+                      <span className="absolute top-2 right-2 rounded-full bg-black/42 px-2 py-0.5 text-[10.5px] font-medium tabular-nums text-white/92 backdrop-blur-sm">
+                        {card.average === null ? '—' : card.average.toFixed(1)}
+                      </span>
+                    </span>
+
+                    <span className="block px-3.5 pt-2.5 pb-3">
+                      <span className="block truncate text-[12.5px] font-medium text-ink">
+                        {card.name}
+                      </span>
+                      <span className="mt-0.5 block text-[10.5px] tabular-nums text-ink-faint">
+                        {card.photoCount} 张 · {card.scored} 张已评
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
     </AppShell>

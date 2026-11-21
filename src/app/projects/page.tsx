@@ -263,18 +263,19 @@ export default function ProjectsPage() {
       />
 
       {/* Hero */}
-      <header className="pt-12 pb-9">
-        <p className="ps-enter ps-eyebrow" style={{ ['--ps-delay' as string]: '0ms' }}>
+      <header className="pt-11 pb-8">
+        <p className="ps-enter ps-cap flex items-center gap-2" style={{ ['--ps-delay' as string]: '0ms' }}>
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-copper" />
           Photo Story
         </p>
         <h1
-          className="ps-enter ps-display mt-3 text-[30px] text-ink sm:text-[40px]"
+          className="ps-enter ps-display mt-3.5 text-[30px] text-ink sm:text-[40px]"
           style={{ ['--ps-delay' as string]: '60ms' }}
         >
           把照片，写成一册
         </h1>
         <p
-          className="ps-enter mt-3.5 max-w-[34rem] text-[13.5px] leading-relaxed break-words text-ink-mid"
+          className="ps-enter mt-3.5 max-w-[34rem] text-[13px] leading-[1.75] break-words text-ink-mid"
           style={{ ['--ps-delay' as string]: '120ms' }}
         >
           {APP_DESCRIPTION}。挑一组照片交给它，写标题、故事与拍摄手法，最后排成一册 Word。
@@ -286,7 +287,7 @@ export default function ProjectsPage() {
         >
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button size="lg" className="h-10 px-5">
+              <Button size="lg" className="ps-sheen h-10 px-5">
                 <Plus className="mr-1.5 h-4 w-4" />
                 新建项目
               </Button>

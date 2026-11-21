@@ -1,22 +1,30 @@
 // src/lib/export/pdf-design.ts
-// 0.6.4：PDF 的照片页改成「按摄影书版式排」——一条统一左边线、字号层级固定、
-// 图注贴图片左边线、页码永远在页脚外侧，绝不裁字。
+// 0.6.5：PDF 竖排照片页 —— 一条统一左边线、字号层级固定、图注贴图片左边线、
+// 页码永远在页脚外侧，绝不裁字。
 //
-// 0.6.3 的老版式问题（用户截图坐实）：
-// 1. 一堆元素居中、一堆元素左对齐，混在一起像 PPT；
-// 2. 序号 / 标题 / 照片 / 参数 / 评分各有各的左边界，观感散；
-// 3. `.gitem .techs { max-height:100%; overflow:hidden }` 直接把超出的建议条目切掉，
-//    用户看到的「文字被截掉」就是它；
-// 4. 页面没有页码。
-//
-// 这一版不再让 CSS 兜底：每一页在生成时就用「毫米预算」算好图高、正文行数，
-// 装不下的块按优先级整块让位（整块不出现，而不是出现一半被切）。
+// 版本史（每一版都对应一类用户报的「字被截掉」）：
+// - 0.6.3：`.gitem .techs { max-height:100%; overflow:hidden }` 直接把超出的条目切掉；
+// - 0.6.4：改成「毫米预算」，但预算里的行数是用 emCount 估的（widthCm-0.2 除以字号），
+//   真实渲染的字体/标点宽度比估算宽，估价偏低时最后一行就顶出 `.pg` 的固定高度，
+//   被页面边界（或下一页的分页）切掉 —— 用户说的「文字割裂、下面看不到了」。
+// - 0.6.5（本版）：预算改成 **canvas measureText 真实测量**（text-measure.ts），
+//   并且把「装不下」的处理从「溢出后靠 CSS 裁」改成「先在毫米预算里降字号 → 缩图 →
+//   按整句缩短正文（末尾省略号）」，`.pg` 的固定高度与内容高度因此永远自洽。
+//   另外给页面底部留 SAFE_BOTTOM_MM 的呼吸位，页码不会压到正文。
 
-import { measureTextCm } from './layout';
+import {
+  type FontSpec,
+  fitText,
+  lineHeightMm,
+  makeFont,
+  measureLines,
+  normalizeText,
+  preferredAlign,
+  type WrapOptions,
+} from './text-measure';
 import {
   type PageStyle,
   type TypeSpec,
-  PT_TO_MM,
   figureNumber,
   chapterNumber,
   tidyReading,
@@ -62,7 +70,6 @@ export interface FigureInput {
   score?: { overall: number; parts: [string, number][] };
   tags?: string[];
   mood?: string;
-  /** 版心顶部是否已经压了章头（让出高度由 budget 负责，这里只影响间距） */
 }
 
 const GAP_TITLE_FIG = 4;
@@ -72,6 +79,19 @@ const GAP_BODY_META = 6;
 const GAP_META_ROW = 1.4;
 const MIN_IMAGE_MM = 46;
 
+/**
+ * 版心底部预留（mm）：页码贴着版心底线排，正文必须离底 ≥ 这个距离，
+ * 否则页码会压在最后一行上（打印出来就是「字被盖住」）。
+ * 取 9mm = 页码行高 4.5mm 外加 4.5mm 空隙，页脚才有呼吸的余地。
+ */
+const SAFE_BOTTOM_MM = 9;
+
+/** 页码行高（mm）：预留高度与 CSS 的 `.pg-folio` 字号对齐 */
+const FOLIO_H_MM = 4.5;
+
+/** 图注最多占版心高度的比例：超长图注会把照片压成邮票，宁可按整句缩短图注 */
+const CAP_MAX_RATIO = 0.18;
+
 interface MetaRow {
   html: string;
   heightMm: number;
@@ -79,23 +99,41 @@ interface MetaRow {
   priority: number;
 }
 
-function lineMm(t: TypeSpec): number {
-  return t.linePt * PT_TO_MM;
+/** 把排版规格换成测量规格：字号/行高/字重/字距与 CSS 完全一致 */
+function typeFont(env: PageEnv, t: TypeSpec): FontSpec {
+  return makeFont(t.family === 'sans' ? env.sansCss : env.serifCss, t.sizePt, t.linePt, t.weight, t.tracking);
 }
 
-/** 一段文字在给定宽度下的行数与高度（mm） */
-function textMm(text: string, widthMm: number, t: TypeSpec): { lines: number; mm: number } {
-  const m = measureTextCm(text, widthMm / 10, t.sizePt, t.linePt / t.sizePt);
-  return { lines: m.lines, mm: m.lines * lineMm(t) };
+/** 一段文字在给定宽度下的行数与高度（mm）—— 全文件唯一的测量入口 */
+function textMm(
+  env: PageEnv,
+  text: string,
+  widthMm: number,
+  t: TypeSpec,
+  opts: WrapOptions = {},
+): { lines: number; mm: number } {
+  if (!text.trim() || widthMm <= 0) return { lines: 0, mm: 0 };
+  const font = typeFont(env, t);
+  const lines = measureLines(text, widthMm, font, opts);
+  return { lines, mm: lines * lineHeightMm(font) };
 }
 
+/** 章头高度：章号 / 章名 / 题记挤在一条基线上，章名长了会折行，必须实测 */
 function chapterBlockHeight(env: PageEnv, chapter: NonNullable<FigureInput['chapter']>): number {
   const s = env.style;
-  // 0.6.4：章号、章名、日期并成一行（原来三行 29.5mm，占掉整页 1/8，
-  // 一页只有一张照片时会让照片被压得很小）。
-  let h = lineMm(s.chapterTitle) + 5;
-  if (chapter.note) h += 0;
-  return h;
+  const titleWidth = Math.max(40, env.contentW * 0.62);
+  const noteWidth = Math.max(30, env.contentW * 0.3);
+  const titleLines = measureLines(chapter.title, titleWidth, typeFont(env, s.chapterTitle));
+  const noteLines = chapter.note ? measureLines(chapter.note, noteWidth, typeFont(env, s.chapterNote)) : 0;
+  const lines = Math.max(1, titleLines, noteLines);
+  return lines * lineHeightMm(typeFont(env, s.chapterTitle)) + 5;
+}
+
+/** 图注文案：`— 图 01 · 标题 · 参数`，破折线把图注和正文拉开层级 */
+export function captionText(index: number, s: PageStyle, title: string, specLine?: string): string {
+  const head = `—　${figureNumber(index, s)}　${title}`;
+  // 分隔点用不换行空格黏在前文上：否则窄图注会把「·」甩到下一行行首（避头尾）
+  return specLine ? `${head}\u00a0·　${specLine}` : head;
 }
 
 /**
@@ -111,7 +149,11 @@ export function planFigurePage(input: FigureInput): {
   bodyWidth: number;
   bodyLeft: number;
   body: TypeSpec;
+  /** 实际排进页面的正文（可能被按整句缩短过） */
+  bodyText: string;
   bodyMm: number;
+  /** 实际排进页面的图注 */
+  capText: string;
   meta: string[];
   chapterMm: number;
   titleMm: number;
@@ -119,14 +161,17 @@ export function planFigurePage(input: FigureInput): {
 } {
   const { env } = input;
   const s = env.style;
+  // 可用高度：扣掉页脚呼吸位，内容永远不会压到页码
+  const usableH = env.contentH - SAFE_BOTTOM_MM;
   const chapterMm = input.chapter ? chapterBlockHeight(env, input.chapter) : 0;
-  const titleMm = lineMm(s.pageTitle) + GAP_TITLE_FIG;
 
-  // 正文：字号可以往下走两档（10.5 → 10 → 9.5），到 9pt 仍装不下就让图变小。
-  const contentW = env.contentW;
   // 正文栏：12 栏里的 8 栏 = 112mm ≈ 每行 30 个汉字（比铺满版心的 46 字好读）
+  const contentW = env.contentW;
   const bodyWidth = Math.min(contentW, 112);
-  const storyText = (input.story ?? '').trim();
+  const storyText = normalizeText(input.story ?? '');
+  const indentEm = s.bodyIndent ? 2 : 0;
+
+  // 正文：字号可以往下走两档（10.5 → 10 → 9.5），到最小档仍装不下就让图变小、最后才缩文字。
   const bodyCandidates = [s.body, { ...s.body, sizePt: s.body.sizePt - 0.5 }, { ...s.body, sizePt: s.body.sizePt - 1 }];
   // 阶梯行距按比例同步收缩，保持同样的疏密感
   const ladder = bodyCandidates.map((b) => ({
@@ -134,16 +179,24 @@ export function planFigurePage(input: FigureInput): {
     linePt: Math.round(b.sizePt * (s.body.linePt / s.body.sizePt) * 20) / 20,
   }));
 
-  const capText = input.specLine ? `${figureNumber(input.index, s)}　${input.title}　·　${input.specLine}` : `${figureNumber(input.index, s)}　${input.title}`;
+  const baseTitle = normalizeText(input.title);
   const aspect = input.imgW > 0 && input.imgH > 0 ? input.imgW / input.imgH : 3 / 2;
-
-  // 图注宽度：跟着图走，但最窄 54mm、最宽 112mm（长图注读不动）
   const imageMaxH = env.contentH * s.photo.maxHeightRatio;
+  // 图注宽度：跟着图走，但最窄 54mm、最宽 112mm（长图注读不动）
+  const capTextFull = captionText(input.index, s, baseTitle, input.specLine);
+  // 标题与正文栏共用左边线，图号占掉一部分宽度：按保守宽度测行数，宁可估多一行
+  const titleWidth = Math.max(40, bodyWidth - 22);
+  const titleLines = measureLines(baseTitle, titleWidth, typeFont(env, s.pageTitle));
+  const titleMm = Math.max(1, titleLines) * lineHeightMm(typeFont(env, s.pageTitle)) + GAP_TITLE_FIG;
+  const capMaxMm = usableH * CAP_MAX_RATIO;
 
   let best: ReturnType<typeof planFigurePage> | null = null;
 
   for (const body of ladder) {
-    const bodyNeed = storyText ? textMm(storyText, bodyWidth, body).mm : 0;
+    const bodyFont = typeFont(env, body);
+    const bodyLines = storyText ? measureLines(storyText, bodyWidth, bodyFont, { firstIndentEm: indentEm }) : 0;
+    const bodyNeed = bodyLines * lineHeightMm(bodyFont);
+
     for (const shrink of [1, 0.92, 0.84]) {
       // 先按宽高比定出「图能多大」，再看剩下的高度够不够
       let imgH = Math.min(imageMaxH * shrink, env.contentH * 0.8);
@@ -152,15 +205,19 @@ export function planFigurePage(input: FigureInput): {
       const imgW = imgH * aspect;
 
       const capWidth = Math.min(Math.max(54, imgW), Math.min(112, contentW));
-      const capNeed = textMm(capText, capWidth, s.caption).mm + GAP_FIG_CAP;
+      const capNeedRaw = textMm(env, capTextFull, capWidth, s.caption).mm;
+      const capNeed = Math.min(capNeedRaw, capMaxMm) + GAP_FIG_CAP;
       const fixed = chapterMm + titleMm + capNeed + (storyText ? GAP_CAP_BODY + bodyNeed : 0) + GAP_BODY_META;
-      const roomForImage = env.contentH - fixed;
+      const roomForImage = usableH - fixed;
       const useH = Math.min(imgH, Math.max(MIN_IMAGE_MM, roomForImage));
       const useW = useH * aspect;
       const total = fixed + useH;
 
-      if (total <= env.contentH + 0.2) {
-        const meta = buildMeta(input, env, env.contentH - total - GAP_BODY_META, capWidth);
+      if (total <= usableH + 0.2) {
+        const metaRoom = Math.max(0, usableH - total - GAP_BODY_META);
+        const metaWidth = Math.min(bodyWidth, useW);
+        const meta = buildMeta(input, env, metaRoom, metaWidth);
+        const capFit = fitText(capTextFull, capWidth, capNeedRaw > capMaxMm ? capMaxMm : capNeedRaw, typeFont(env, s.caption));
         const imgLeft = s.photo.align === 'center' ? Math.max(0, (contentW - useW) / 2) : 0;
         best = {
           imgW: useW,
@@ -171,7 +228,9 @@ export function planFigurePage(input: FigureInput): {
           // 正文跟图对齐同一条左边线，但不出右边版心
           bodyLeft: Math.max(0, Math.min(imgLeft, contentW - bodyWidth)),
           body,
+          bodyText: storyText,
           bodyMm: bodyNeed,
+          capText: capFit.text,
           meta,
           chapterMm,
           titleMm,
@@ -184,14 +243,25 @@ export function planFigurePage(input: FigureInput): {
   }
 
   if (!best) {
-    // 极端兜底：图最小、正文最小字号，绝不让文字落到下一页
+    // 兜底：图最小 + 正文最小档，正文再按整句缩短到「一定装得下」——
+    // 宁可少印后半句（末尾带省略号），也绝不把最后一行立在页面外面被裁掉。
     const body = ladder[ladder.length - 1];
-    const bodyNeed = storyText ? textMm(storyText, bodyWidth, body).mm : 0;
+    const bodyFont = typeFont(env, body);
     const imgH = MIN_IMAGE_MM;
     const imgW = imgH * aspect;
     const capWidth = Math.min(Math.max(54, imgW), Math.min(112, contentW));
-    const capNeed = textMm(capText, capWidth, s.caption).mm + GAP_FIG_CAP;
+    const capNeedRaw = textMm(env, capTextFull, capWidth, s.caption).mm;
+    const capBudget = Math.max(0, Math.min(capNeedRaw, capMaxMm));
     const imgLeft = s.photo.align === 'center' ? Math.max(0, (contentW - imgW) / 2) : 0;
+
+    const capFit = fitText(capTextFull, capWidth, capBudget, typeFont(env, s.caption));
+    const fixedNoBody = chapterMm + titleMm + capBudget + GAP_FIG_CAP + GAP_BODY_META + imgH;
+    // 正文能用的高度：剩下的全部（若已经为负，fitText 会返回空串，这页只剩图与图注）
+    const bodyRoom = usableH - fixedNoBody - (storyText ? GAP_CAP_BODY : 0);
+    const bodyFit = storyText
+      ? fitText(storyText, bodyWidth, Math.max(0, bodyRoom), bodyFont, { firstIndentEm: indentEm })
+      : { text: '', lines: 0, heightMm: 0, truncated: false, trackingEm: 0 };
+
     best = {
       imgW,
       imgH,
@@ -200,11 +270,13 @@ export function planFigurePage(input: FigureInput): {
       bodyWidth,
       bodyLeft: Math.max(0, Math.min(imgLeft, contentW - bodyWidth)),
       body,
-      bodyMm: bodyNeed,
+      bodyText: bodyFit.text,
+      bodyMm: bodyFit.heightMm,
+      capText: capFit.text,
       meta: [],
       chapterMm,
       titleMm,
-      totalMm: chapterMm + titleMm + capNeed + bodyNeed + imgH,
+      totalMm: fixedNoBody + bodyFit.heightMm + (storyText ? GAP_CAP_BODY : 0),
     };
   }
 
@@ -224,24 +296,26 @@ function buildMeta(input: FigureInput, env: PageEnv, roomMm: number, widthMm: nu
           `<div class="pg-tech-row"><span>${escapeHtml(t.label)}</span><p>${escapeHtml(t.text)}</p></div>`,
       )
       .join('')}</div>`;
-    const h = input.technique.reduce(
-      (sum, t) => sum + textMm(t.text, wide - 16, s.specText).mm + GAP_META_ROW,
-      0,
-    );
+    // 技术档案：左边 14mm 标签栏 + 3mm 间距，正文只有剩下的宽度
+    const textWidth = Math.max(20, wide - 17);
+    const h = input.technique.reduce((sum, t) => sum + textMm(env, t.text, textWidth, s.specText).mm + GAP_META_ROW, 0);
     rows.push({ html, heightMm: h, priority: 0 });
   }
   if (input.specLine) {
     rows.push({
       html: `<p class="pg-spec">${escapeHtml(input.specLine)}</p>`,
-      heightMm: lineMm(s.specText) + GAP_META_ROW,
+      heightMm: textMm(env, input.specLine, widthMm, s.specText).mm + GAP_META_ROW,
       priority: 1,
     });
   }
   if (input.score) {
-    const parts = input.score.parts.map(([k, v]) => `${k} ${Math.round(v)}`).join('  ·  ');
+    const parts = input.score.parts.map(([k, v]) => `${k} ${Math.round(v)}`).join('\u00a0· ');
+    const html = `<p class="pg-score"><b>${input.score.overall.toFixed(1)}</b>/100　${escapeHtml(parts)}</p>`;
+    // 总分数字比正文大 3pt，单独一行测高度（不会再挤成两行）
+    const text = `${input.score.overall.toFixed(1)}/100　${parts}`;
     rows.push({
-      html: `<p class="pg-score"><b>${input.score.overall.toFixed(1)}</b>/100　${escapeHtml(parts)}</p>`,
-      heightMm: lineMm(s.specText) + 1.6 + GAP_META_ROW,
+      html,
+      heightMm: textMm(env, text, widthMm, s.specText).mm + 1.6 + GAP_META_ROW,
       priority: 2,
     });
   }
@@ -249,10 +323,9 @@ function buildMeta(input: FigureInput, env: PageEnv, roomMm: number, widthMm: nu
     .filter(Boolean)
     .join('　');
   if (tail) {
-    const need = textMm(tail, widthMm, s.specText).mm + GAP_META_ROW;
     rows.push({
       html: `<p class="pg-tail">${escapeHtml(tail)}</p>`,
-      heightMm: need,
+      heightMm: textMm(env, tail, widthMm, s.specText).mm + GAP_META_ROW,
       priority: 3,
     });
   }
@@ -281,11 +354,9 @@ export function renderFigurePage(input: FigureInput): string {
   const { env } = input;
   const s = env.style;
   const plan = planFigurePage(input);
-  const aspect = input.imgW > 0 && input.imgH > 0 ? input.imgW / input.imgH : 3 / 2;
-  void aspect;
   const html: string[] = [];
 
-  // 0.6.4：整块内容在版心里垂直微调 —— 空白全留底下会像「排崩了」，
+  // 整块内容在版心里垂直微调 —— 空白全留底下会像「排崩了」，
   // 把富余高度的 40% 放到上方，剩下留底，观感才像画册。
   const slack = env.contentH - plan.totalMm;
   const topPad = slack > 24 ? Math.min(slack * 0.4, 46) : 0;
@@ -301,7 +372,7 @@ export function renderFigurePage(input: FigureInput): string {
   }
 
   // 页内标题与图号跟照片（或正文栏）共用同一条左边线，页面只允许一条竖线
-  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><span class="pg-no">${figureNumber(input.index, s)}</span><h2 class="pg-title">${escapeHtml(input.title)}</h2></div>`);
+  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><span class="pg-no">${figureNumber(input.index, s)}</span><h2 class="pg-title">${escapeHtml(normalizeText(input.title))}</h2></div>`);
 
   if (input.url) {
     const matte = s.photo.matteMm > 0 ? ` padding:${s.photo.matteMm}mm;` : '';
@@ -314,15 +385,25 @@ export function renderFigurePage(input: FigureInput): string {
     html.push(`<div class="pg-photo-ph" style="width:${plan.imgW.toFixed(1)}mm;height:${plan.imgH.toFixed(1)}mm;margin-left:${plan.imgLeft.toFixed(1)}mm"></div>`);
   }
 
-  const capText = input.specLine
-    ? `${figureNumber(input.index, s)}&ensp;${escapeHtml(input.title)}&ensp;·&ensp;${escapeHtml(input.specLine)}`
-    : `${figureNumber(input.index, s)}&ensp;${escapeHtml(input.title)}`;
-  html.push(`<p class="pg-cap" style="width:${plan.capWidth.toFixed(1)}mm;margin-left:${plan.imgLeft.toFixed(1)}mm">${capText}</p>`);
-
-  if (input.story && input.story.trim()) {
+  if (plan.capText) {
     html.push(
-      `<p class="pg-story" style="width:${plan.bodyWidth.toFixed(1)}mm;margin-left:${plan.bodyLeft.toFixed(1)}mm">` +
-        `${escapeHtml(tidyReading(input.story))}</p>`,
+      `<p class="pg-cap" style="width:${plan.capWidth.toFixed(1)}mm;margin-left:${plan.imgLeft.toFixed(1)}mm">${escapeHtml(plan.capText)}</p>`,
+    );
+  }
+
+  if (plan.bodyText) {
+    // 两端对齐只对中文好看：西文在 112mm 正文栏里也会被拉出词间大洞，退回左对齐
+    const align = preferredAlign(plan.bodyText);
+    // 字号阶梯算出来的字号必须落到真实排版上，否则「按 9.5pt 量、按 10.5pt 印」会凭空多出两行
+    const bodyFont = typeFont(env, plan.body);
+    const bodyLineMm = lineHeightMm(bodyFont);
+    // data-lines 是我们测出来的行数，只给验收脚本核对「测量 vs 浏览器真实断行」用
+    const bodyLines = Math.max(1, Math.round(plan.bodyMm / bodyLineMm));
+    html.push(
+      `<p class="pg-story" data-lines="${bodyLines}" style="width:${plan.bodyWidth.toFixed(1)}mm;margin-left:${plan.bodyLeft.toFixed(1)}mm;` +
+        `text-align:${align};font-size:${plan.body.sizePt}pt;line-height:${bodyLineMm.toFixed(2)}mm;` +
+        `letter-spacing:${plan.body.tracking}em">` +
+        `${escapeHtml(tidyReading(plan.bodyText))}</p>`,
     );
   }
 
@@ -354,11 +435,12 @@ export function renderChapterPage(_env: PageEnv, chapter: { no: number; title: s
 </section>`;
 }
 
-/** 版式 CSS（只作用于 .pg* 类，不动老的封面/总览样式） */export function designCss(env: PageEnv): string {
+/** 版式 CSS（只作用于 .pg* 类，不动老的封面/总览样式） */
+export function designCss(env: PageEnv): string {
   const s = env.style;
   const t = (x: TypeSpec, extra = ''): string =>
     `font-family:${x.family === 'sans' ? env.sansCss : env.serifCss};font-size:${x.sizePt}pt;` +
-    `line-height:${lineMm(x).toFixed(2)}mm;letter-spacing:${x.tracking}em;font-weight:${x.weight};${extra}`;
+    `line-height:${lineHeightMm(x).toFixed(2)}mm;letter-spacing:${x.tracking}em;font-weight:${x.weight};${extra}`;
   const color = (c: TypeSpec['color']): string =>
     c === 'soft' ? env.tint.inkSoft : c === 'line' ? env.tint.line : c === 'accent' ? (s.accent ?? env.tint.ink) : env.tint.ink;
 
@@ -373,21 +455,24 @@ export function renderChapterPage(_env: PageEnv, chapter: { no: number; title: s
   .pg-chapter-note { margin: 0 0 0 auto; color: ${color(s.chapterNote.color)}; ${t(s.chapterNote)} }
   .pg-head { display: flex; align-items: baseline; gap: 4mm; margin: 0 0 ${GAP_TITLE_FIG}mm; }
   .pg-no { color: ${color(s.captionNum.color)}; ${t(s.captionNum)} font-variant-numeric: tabular-nums; }
-  .pg-title { margin: 0; color: ${color(s.pageTitle.color)}; ${t(s.pageTitle)} }
-  /* 0.6.4 修正：老的 figure img 的 max-height 会把照片硬压小，
-     竖构图本该 177mm 高，实际只画出 116mm，还因为 figure 的 text-align:center
-     整体右移 —— 这里按毫米预算写死尺寸，必须把老的约束全部解除。 */
+  .pg-title { margin: 0; color: ${color(s.pageTitle.color)}; ${t(s.pageTitle)} overflow-wrap: anywhere; }
+  /* 竖构图本该 177mm 高，老的 figure img 的 max-height 会把它硬压小，
+     还因为 figure 的 text-align:center 整体右移 —— 这里按毫米预算写死尺寸，
+     必须把老的约束全部解除。 */
   .pg-photo { margin: 0; text-align: left; }
   .pg-photo img { display: block; max-width: none; max-height: none; object-fit: contain; }
   .pg-photo-ph { background: #f2f2f2; border-radius: 1mm; }
+  /* 图注：比正文小一号、颜色压灰、行首一道破折线 —— 与正文拉开层级，不糊在一起 */
   .pg-cap { margin: ${GAP_FIG_CAP}mm 0 0; color: ${color(s.caption.color)}; ${t(s.caption)}
-    font-variant-numeric: tabular-nums; }
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  /* 正文：首行缩进 2em、两端对齐、长单词允许断行（绝不横向溢出被裁）、数字等宽 */
   .pg-story { margin: ${GAP_CAP_BODY}mm 0 0; color: ${color(s.body.color)}; ${t(s.body)}
     ${s.bodyIndent ? 'text-indent: 2em;' : ''} ${s.bodyJustify ? 'text-align: justify;' : ''}
-    text-justify: inter-ideograph; }
+    text-justify: inter-ideograph; overflow-wrap: anywhere; word-break: normal;
+    font-variant-numeric: tabular-nums; hyphens: none; }
   .pg-meta { margin: ${GAP_BODY_META}mm 0 0; padding-top: 3mm; border-top: 0.3pt solid ${env.tint.line}; }
   .pg-spec { margin: 0 0 ${GAP_META_ROW}mm; color: ${color(s.specText.color)}; ${t(s.specText)}
-    font-variant-numeric: tabular-nums; }
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .pg-score { margin: 0 0 ${GAP_META_ROW}mm; color: ${color(s.specText.color)}; ${t(s.specText)}
     font-variant-numeric: tabular-nums; }
   .pg-score b { font-weight: 600; color: ${env.tint.ink}; font-size: ${(s.specText.sizePt + 3).toFixed(1)}pt; }
@@ -396,7 +481,9 @@ export function renderChapterPage(_env: PageEnv, chapter: { no: number; title: s
   .pg-tech-row { display: flex; gap: 3mm; break-inside: avoid; }
   .pg-tech-row span { flex: 0 0 14mm; color: ${env.tint.inkSoft}; ${t(s.specText)} }
   .pg-tech-row p { margin: 0; color: ${env.tint.ink}; ${t(s.specText)} }
-  .pg-folio { position: absolute; bottom: 0; right: 0; margin: 0; color: ${color(s.folio.color)};
+  /* 页码：贴版心底线（不是页面底边），数字等宽，与正文之间留 SAFE_BOTTOM_MM */
+  .pg-folio { position: absolute; bottom: 0; right: 0; margin: 0; height: ${FOLIO_H_MM}mm;
+    line-height: ${FOLIO_H_MM}mm; color: ${color(s.folio.color)};
     ${t(s.folio)} font-variant-numeric: tabular-nums; }
   .pg-chapter-page { padding-top: 62mm; }
   .cp-block { max-width: 120mm; }

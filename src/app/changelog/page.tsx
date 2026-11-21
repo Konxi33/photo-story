@@ -113,7 +113,7 @@ export default function ChangelogPage() {
       <div className="mx-auto w-full max-w-3xl px-5 py-9 md:px-8">
         <header className="mb-6">
           <p className="ps-eyebrow">Changelog</p>
-          <h1 className="ps-display mt-2 text-[26px] text-ink">更新日志</h1>
+          <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">更新日志</h1>
           <p className="mt-2 text-[13px] text-ink-mid">
             当前版本 v{APP_VERSION} · 共 {versions.length} 个版本、{totalItems} 条改动
           </p>

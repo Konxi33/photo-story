@@ -110,7 +110,7 @@ export default function ThemesPage() {
       <div className="px-5 py-8 md:px-8">
         <header className="mb-6">
           <p className="ps-eyebrow">Themes</p>
-          <h1 className="ps-display mt-2 text-[26px] text-ink">主题馆</h1>
+          <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">主题馆</h1>
           <p className="mt-2 max-w-[42rem] text-[13px] leading-relaxed text-ink-mid">
             八类常见题材，每一类都写清了「难在哪、怎么拍、怎么写」。你的照片会自动归到对应主题下，点开就能看到这个题材里你最好的那张。
           </p>

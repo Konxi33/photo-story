@@ -325,7 +325,7 @@ export default function BookPage() {
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="ps-eyebrow">Book</p>
-            <h1 className="ps-display mt-2 text-[26px] text-ink">编排</h1>
+            <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">编排</h1>
             <p className="mt-2 max-w-[40rem] text-[13px] leading-relaxed text-ink-mid">
               把入选照片分进章节、排好先后、写一句题记。导出的 Word 会按这个结构走：章节页 → 照片页。
             </p>

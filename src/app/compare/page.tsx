@@ -228,7 +228,7 @@ export default function ComparePage() {
         <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="ps-eyebrow">Duel</p>
-            <h1 className="ps-display mt-2 text-[26px] text-ink">选片擂台</h1>
+            <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">选片擂台</h1>
             <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-mid">
               每两张里选一张，一直选到最后。全部在本地完成，不花一次模型调用。
               二十张照片只需要十九次「这个比那个好」。

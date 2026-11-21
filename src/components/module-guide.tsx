@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 import { ArrowRight, HelpCircle, Lightbulb, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -61,12 +61,9 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={cn(
-          'group inline-flex items-center gap-1.5 rounded-full border border-line/50 bg-surface-2/30 px-3 py-1 text-[11.5px] text-ink-faint transition-colors duration-200 hover:border-line hover:text-ink-mid',
-          className,
-        )}
+        className={cn('ps-chip group h-7 text-[11.5px]', className)}
       >
-        <HelpCircle className="h-3.5 w-3.5" />
+        <HelpCircle className="h-3.5 w-3.5 text-copper/80" />
         {doc.name}是干什么的？
       </button>
     );
@@ -75,33 +72,30 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
   return (
     <section
       aria-label={`${doc.name}使用说明`}
-      className={cn(
-        'ps-enter relative overflow-hidden rounded-2xl border border-line/60 bg-surface-2/45 px-4 py-3.5 sm:px-5',
-        className,
-      )}
-      style={{ ['--ps-delay' as string]: '80ms' }}
+      className={cn('ps-enter ps-card relative overflow-hidden px-4 py-4 sm:px-5', className)}
+      style={{ '--ps-delay': '80ms' } as CSSProperties}
     >
       <span
         aria-hidden
-        className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-amber-400/70 via-amber-500/40 to-transparent"
+        className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-copper via-copper/40 to-transparent"
       />
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/12 text-amber-600 dark:text-amber-400">
-          <Lightbulb className="h-4 w-4" />
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-copper/12 text-copper">
+          <Lightbulb className="h-4 w-4" strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h2 className="text-[13.5px] font-semibold text-ink">
               {doc.name} · {doc.tagline}
             </h2>
-            <span className="text-[11px] text-ink-faint">第一次用可以先看这三行</span>
+            <span className="ps-cap">第一次用可以先看这三行</span>
           </div>
           <p className="mt-1.5 flex items-baseline gap-1.5 text-[12.5px] leading-relaxed text-ink-mid">
             <span className="min-w-0">{doc.detail.split('。')[0]}。</span>
             <button
               type="button"
               onClick={() => setShowDetail((v) => !v)}
-              className="shrink-0 text-[11.5px] text-ink-faint underline decoration-line underline-offset-2 transition-colors hover:text-ink"
+              className="shrink-0 text-[11.5px] text-ink-faint underline decoration-[color:var(--hairline)] underline-offset-2 transition-colors hover:text-copper"
             >
               {showDetail ? '收起' : '细说'}
             </button>
@@ -109,23 +103,23 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
           {showDetail && (
             <p className="ps-fade-in mt-1 text-[12px] leading-relaxed text-ink-faint">{doc.detail}</p>
           )}
-          <ol className="mt-2.5 grid gap-1.5">
+          <ol className="mt-3 grid gap-1.5">
             {doc.steps.map((step, index) => (
               <li key={step} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-mid">
-                <span className="mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-line/50 text-[10px] font-semibold tabular-nums text-ink-mid">
+                <span className="mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-copper/10 text-[10px] font-semibold tabular-nums text-copper">
                   {index + 1}
                 </span>
                 <span>{step}</span>
               </li>
             ))}
           </ol>
-          <p className="mt-2.5 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-ink-faint">
+          <p className="mt-3 flex items-start gap-1.5 rounded-[10px] bg-surface-2/50 px-2.5 py-2 text-[11.5px] leading-relaxed text-ink-faint">
             <span className="shrink-0 font-medium text-ink-mid">小提示</span>
             <span>{doc.tip}</span>
           </p>
           <div className="mt-3 flex items-center gap-2">
             {onTry && (
-              <Button size="sm" className="h-7 rounded-full px-3 text-[12px]" onClick={dismiss}>
+              <Button size="sm" className="ps-sheen h-7 rounded-full px-3 text-[12px]" onClick={dismiss}>
                 {doc.action ?? '知道了'}
                 <ArrowRight className="ml-1 h-3.5 w-3.5" />
               </Button>
@@ -144,7 +138,7 @@ export function ModuleGuide({ moduleId, autoOpen = true, className, onTry }: Mod
           type="button"
           onClick={dismiss}
           aria-label="收起说明"
-          className="rounded-full p-1 text-ink-faint transition-colors duration-200 hover:bg-line/40 hover:text-ink"
+          className="rounded-full p-1 text-ink-faint transition-colors duration-200 hover:bg-surface-2 hover:text-ink"
         >
           <X className="h-3.5 w-3.5" />
         </button>

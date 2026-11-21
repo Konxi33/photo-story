@@ -14,13 +14,41 @@ const {
   net,
 } = require('electron');
 const { spawn } = require('node:child_process');
+const nodeNet = require('node:net');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const HOST = '127.0.0.1';
-const PORT = 3939;
-const APP_URL = 'http://' + HOST + ':' + PORT;
+// 0.7.1：端口不再写死。老版本固定 3939，一旦 3939 被别的程序（例如开发时的
+// `npm run dev`，或上次异常退出留下的孤儿 server.js）占着，用户就会看到
+// 「启动失败：Next.js 服务进程意外退出，可能原因：3939 端口被占用」。
+// 现在从 3939 开始往后找一个真正空闲的端口，用哪个就开哪个。
+const PREFERRED_PORT = Number(process.env.PHOTO_STORY_PORT) || 3939;
+const PORT_SCAN_RANGE = 40;
+let PORT = PREFERRED_PORT;
+let APP_URL = 'http://' + HOST + ':' + PORT;
+
+/** 在 [start, start+range) 里找一个能 listen 的空闲端口 */
+function findFreePort(start, range) {
+  return new Promise((resolve) => {
+    const tryPort = (port, attempt) => {
+      if (attempt >= range) {
+        resolve(0); // 全被占了：交给系统分配
+        return;
+      }
+      const srv = nodeNet.createServer();
+      srv.unref();
+      srv.on('error', () => {
+        srv.close(() => tryPort(port + 1, attempt + 1));
+      });
+      srv.listen(port, HOST, () => {
+        srv.close(() => resolve(port));
+      });
+    };
+    tryPort(start, 0);
+  });
+}
 
 let serverProcess = null;
 let mainWindow = null;
@@ -130,7 +158,10 @@ function createWindow() {
     // 配合 CSS 的半透明底色，才能真的「看到桌面」而不是只透明到窗口背景。
     backgroundColor: '#00000000',
     backgroundMaterial: 'acrylic',
-    visualEffectState: 'active',
+    // 0.7.1：原来固定 'active'，窗口失焦（用户去点别的窗口）时 DWM 仍在每帧
+    // 重算亚克力模糊，表现为「点别的窗口卡得点不到」。改成 followWindow 后，
+    // 窗口不活跃时自动停掉亚克力合成，重新聚焦再恢复。
+    visualEffectState: 'followWindow',
     title: '照片故事',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -893,9 +924,15 @@ if (!gotLock) {
 
     try {
       if (isDev) {
+        // 开发模式：不自带 Next 服务，直接连 `npm run dev` 起的那个端口
+        // （用 PHOTO_STORY_PORT 指定，默认 3939）。
+        PORT = PREFERRED_PORT;
+        APP_URL = 'http://' + HOST + ':' + PORT;
         createWindow();
         return;
       }
+      PORT = (await findFreePort(PREFERRED_PORT, PORT_SCAN_RANGE)) || PREFERRED_PORT;
+      APP_URL = 'http://' + HOST + ':' + PORT;
       startServer();
       await waitForServer(40000);
       createWindow();
@@ -904,7 +941,10 @@ if (!gotLock) {
       dialog.showErrorBox(
         '启动失败',
         detail +
-          '\n\n可能原因：3939 端口被占用。请关闭占用该端口的程序后重试。',
+          '\n\n已尝试端口 ' +
+          PORT +
+          '。如果反复出现，请检查任务管理器里是否还有残留的「照片故事」进程，' +
+          '结束它之后再打开。',
       );
       stopServer();
       app.quit();

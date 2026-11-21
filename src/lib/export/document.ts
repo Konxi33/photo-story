@@ -31,7 +31,8 @@ import { normalizeExportSettings } from './bookStyle';
 import { buildProsePage } from './prose';
 // 0.6.1：流式排版（buildPhotoSection）已不再用于导出 —— 它保证不了「一张图和它的文字不跨页」。
 // 所有单页现在都走 buildGridPhotoSection（12×24 网格表），需要老观感时由 resolveLayout 折成竖排网格。
-import { buildSingleFlowSection } from './word-grid';
+import { buildCanvasFlowSection, buildSingleFlowSection } from './word-grid';
+import { hasCustomPlacement } from './layout';
 import { buildChapterHeading, buildChapterOpener, planChapters, type ChapterPlan } from './chapter';
 import { buildCoverSection } from './cover';
 import { buildRunFont, buildRunStyle } from './fonts';
@@ -140,6 +141,9 @@ export function buildDocument(params: BuildDocumentParams): Document {
   const fullHeightCm = exportContentHeightCm(settings);
 
   // 「左 8 / 右 4」两栏：块全都落在左半或右半，没有跨栏的复杂摆位
+  // 0.6.6：用户在排版台上挪过位置时走「画布流式」（把格子位置印出来，但不裁字）；
+  // 没挪过（默认预设 / useGrid=false）仍走单栏流式，保证默认流程零回归。
+  const canvasFlow = hasCustomPlacement(settings);
   const photoPage = (
     photo: Photo,
     index: number,
@@ -147,7 +151,19 @@ export function buildDocument(params: BuildDocumentParams): Document {
   ): (Paragraph | Table)[] => {
     const image = images.get(photo.id);
     if (!image) return [];
-    // 0.6.3：Word 一律走「单栏流式」——纯段落、零嵌套表、零固定行高。
+    // 0.6.6：排版台有自定义位置 → 按「行带 + 比例列宽」画，图片在左文字在右就真的是左右。
+    if (canvasFlow) {
+      return buildCanvasFlowSection({
+        photo,
+        index,
+        image,
+        settings,
+        contentCm,
+        heading: opts.heading,
+        pageBreakBefore: !opts.isFirst,
+      });
+    }
+    // 0.6.3：默认版式走「单栏流式」——纯段落、零嵌套表、零固定行高。
     // Word/LibreOffice 的 HeightRule.EXACT 不裁内容，一旦块比格子高就字压字；
     // 单栏流式让段落自然往下排，排满一页自动翻页，永远不会重叠或被裁。
     // 用户在排版台定的「顺序」仍被尊重（buildSingleFlowSection 内部用 layoutOrder）。

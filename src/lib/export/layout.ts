@@ -164,6 +164,31 @@ export function resolveLayout(settings: ExportSettings): PageLayout {
 }
 
 /**
+ * 用户在排版台上挪过位置吗？
+ *
+ * 0.6.6：Word 的画布流式（buildCanvasFlowSection）只在这种时候接管 ——
+ * 默认预设（摄影集）继续走纯单栏流式，保证「没动排版台」的用户导出结果零变化。
+ *
+ * 判定口径不是「有没有 grid 字段」，而是比位置和尺寸：只要任何一块的
+ * col/row/colSpan/rowSpan 跟默认预设不同，或者块的种类/数量变了，就算改过。
+ */
+export function hasCustomPlacement(settings: ExportSettings): boolean {
+  if (settings.useGrid === false) return false;
+  const grid = settings.grid;
+  if (!grid || !Array.isArray(grid.items) || grid.items.length === 0) return false;
+  const custom = normalizeLayout(grid).items;
+  if (custom.length !== DEFAULT_LAYOUT.items.length) return true;
+  const base = new Map(DEFAULT_LAYOUT.items.map((item) => [item.id, item]));
+  for (const item of custom) {
+    const def = base.get(item.id);
+    if (!def) return true;
+    if (def.col !== item.col || def.row !== item.row) return true;
+    if (def.colSpan !== item.colSpan || def.rowSpan !== item.rowSpan) return true;
+  }
+  return false;
+}
+
+/**
  * 由「板块清单」推出一个通栏版式：左 8 格放序号/标题/大图/图注/正文，
  * 右 4 格按优先级竖排其余的块（评分、参数、拍摄手法、标签……）。
  * 右栏放不下的块直接不排（比塞爆被裁好看），数量与顺序仍由用户在对话框里决定。

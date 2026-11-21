@@ -25,11 +25,11 @@ import { resolveBlocks } from './blocks';
 import { applyFrame } from './frame';
 import { encodeImageForDocx } from './image-encode';
 import { tidyParam } from './params';
-import { measureTextCm } from './layout';
 import { GRID_HEADING_RESERVE_CM, buildGridPhotoPage } from './pdf-grid';
 import { exportContentCm, exportContentHeightCm, exportMarginCm } from './metrics';
 import { HEAD_FONT_CSS, bodyFontOption, normalizeExportSettings, paperTintOption } from './bookStyle';
 import { type PageEnv, designCss, renderChapterPage, renderFigurePage } from './pdf-design';
+import { makeFont, measureLines, singleLineWidthMm, PT_TO_MM } from './text-measure';
 import { pageStyle } from './typography';
 
 interface Candidate {
@@ -70,6 +70,51 @@ const TECH_LABELS: { key: keyof Technique; label: string }[] = [
 ];
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * 单行文字适配：按真实字宽逐步砍字并补「…」，保证整行一定排得进给定宽度。
+ * 总览页缩略图下面那行标题用 —— 以前靠 `white-space:nowrap + text-overflow:ellipsis`，
+ * 英文长单词会被从中间切掉且看不出被切，现在改成先量再缩，省略号是唯一的截断痕迹。
+ */
+function fitOneLine(text: string, widthMm: number, familyCss: string, sizePt: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean || widthMm <= 0) return clean;
+  const font = makeFont(familyCss, sizePt, sizePt * 1.45);
+  if (singleLineWidthMm(clean, font) <= widthMm) return clean;
+  const chars = Array.from(clean);
+  let lo = 0;
+  let hi = chars.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (singleLineWidthMm(chars.slice(0, mid).join('') + '…', font) <= widthMm) lo = mid;
+    else hi = mid - 1;
+  }
+  return chars.slice(0, lo).join('') + '…';
+}
+
+/**
+ * 紧凑章头（`.chapter-inline`）在版心里实际占掉的高度（cm）。
+ *
+ * 章头是下面这段 HTML 自己拼的，高度由 CSS 决定（padding-top 2mm / 10px 外边距 /
+ * 10pt 章号 / 17pt 章名 / 34mm 短横线 / 6mm 下边距）。这里逐项照着算，章名和章注
+ * 都按真实字宽折行 —— 估少了，同一页的网格页会被整体顶到下一页，前一页只印着章头
+ * （用户看到的「白页」）；估多了，又多出一块莫名其妙的留白。
+ */
+function inlineHeadingHeightCm(title: string, note: string | undefined, contentWmm: number): number {
+  const pxMm = 25.4 / 96; // CSS px → mm
+  const lineMm = (pt: number): number => pt * 1.7 * PT_TO_MM;
+  let h = 2; // .chapter-inline { padding-top: 2mm }
+  h += lineMm(10); // .chapter-no 10pt / 1.7
+  const nameLines = Math.max(1, measureLines(title, contentWmm, makeFont(HEAD_FONT_CSS, 17, 17 * 1.7, 600, 0.04)));
+  h += 10 * pxMm + nameLines * lineMm(17); // .chapter-name { margin-top:10px; font-size:17pt }
+  if (note) {
+    const noteLines = Math.max(1, measureLines(note, contentWmm, makeFont(HEAD_FONT_CSS, 11, 11 * 1.7)));
+    h += 10 * pxMm + noteLines * lineMm(11); // .chapter-note { margin-top:10px; font-size:11pt }
+  }
+  h += 28 * pxMm + pxMm; // .rule.short { height:1px; margin:14px auto }
+  h += 6; // .chapter-inline { margin-bottom: 6mm }
+  return h / 10 + 0.2; // 上面全按 mm 累加，转成 cm；0.2cm 安全余量：宁可让网格页矮一点，也不能被顶到下一页
+}
 
 export interface ExportPdfParams {
   project: Project;
@@ -258,10 +303,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
           tidyParam(a.params.focalLength, 'focal'),
         ]
           .filter((v) => v)
-          .join('　·　')
+          // 分隔点用不换行空格黏在前一项上：否则窄图注会把「·」甩到下一行行首
+          .join('\u00a0·　')
       : '';
     const exifLine = photo.exif
-      ? [formatCamera(photo.exif), formatExifLine(photo.exif)].filter(Boolean).join('　·　')
+      ? [formatCamera(photo.exif), formatExifLine(photo.exif)].filter(Boolean).join('\u00a0·　')
       : '';
     const capStyle = settings.captionStyle ?? 'title';
     // 图注里那一行参数：按用户的图注口径给，没参数就退回 EXIF（相框已烧参数时这里已为空）
@@ -341,9 +387,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
       // 积木版还得把章头占的高度让出来；章注可能换行，按实测文字高度累加
       // （让得不够，整页会被推到下一页，前一面只印着章头 —— 白页）。
       const shareHeading = single && photoIndex === 0;
-      const headingReserveCm = chapter.note
-        ? GRID_HEADING_RESERVE_CM + measureTextCm(chapter.note, layout.contentW / 10, 11, 1.7).needCm + 0.35
-        : GRID_HEADING_RESERVE_CM;
+      const headingReserveCm = inlineHeadingHeightCm(chapterInfo.title, chapterInfo.note, layout.contentW);
       bodyParts.push(
         photoSection(
           items([photo])[0],
@@ -386,6 +430,10 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   }
 
   // 总览页：3 或 4 列缩略图墙，一页之内按张数自动分列
+  const ovCols = items(photos).length > 12 ? 4 : 3;
+  // 缩略图下面的标题按真实字宽先量再缩（列宽 = (版心 - 列间距) / 列数）
+  const ovCellW = (layout.contentW - (ovCols - 1) * 4) / ovCols;
+  const ovTitleW = Math.max(10, ovCellW - 3.2);
   const overview = settings.includeOverview
     ? `<section class="page break ov">
          <div class="ov-head">
@@ -393,15 +441,16 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
            <h2 class="ov-title">总览</h2>
            <span class="ov-count">${items(photos).length} 张</span>
          </div>
-         <div class="ov-grid cols-${items(photos).length > 12 ? 4 : 3}">
+         <div class="ov-grid cols-${ovCols}">
            ${items(photos)
              .map(
                ({ photo }, index) => {
                  const small = thumbs.get(photo.id) ?? null;
+                 const ovTitle = fitOneLine(photo.analysis?.title || photo.fileName, ovTitleW, bodyFont.css, 8.5);
                  return `
              <figure class="ov-cell">
                ${small ? `<img src="${small}" alt="">` : '<div class="ov-ph"></div>'}
-               <figcaption><b>${pad2(index + 1)}</b>${escapeHtml(photo.analysis?.title || photo.fileName)}</figcaption>
+               <figcaption><b>${pad2(index + 1)}</b>${escapeHtml(ovTitle)}</figcaption>
              </figure>`;
                },
              )
@@ -432,6 +481,10 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
 
   const figMaxH = Math.round(layout.contentH * 0.46);
   const coverMinH = Math.round(layout.contentH - 12);
+  // 封面照片高度必须跟着版心走：写死 148mm 在 A5 上（版心 178mm）会和下面的标题块
+  // 一起超过一页，封面被拆成「照片一页 + 标题一页」（A5 + 装订线的用例实测 3 页）。
+  // 留 96mm 给标题块（27pt 书名 + 副题 + 日期 + 页边距，实测约 60mm，余量给长书名折行）。
+  const coverPhotoH = Math.max(60, Math.min(148, Math.round(layout.contentH - 96)));
   // 版面边距写进 @page：Chromium 里 CSS 的 @page margin 优先于打印设置，
   // 之前写 margin:0 会让自定义边距与装订线全部失效（正文直接顶到纸边）。
   const mSide = `${layout.marginMm}mm`;
@@ -462,7 +515,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .page.break { break-before: page; }
   .cover { display:flex; flex-direction:column; justify-content:flex-start;
     min-height: ${coverMinH}mm; text-align:left; }
-  .cover-photo { width:100%; height:148mm; overflow:hidden; margin:0 0 14mm; }
+  .cover-photo { width:100%; height:${coverPhotoH}mm; overflow:hidden; margin:0 0 14mm; }
   .cover-photo img { width:100%; height:100%; object-fit:cover; display:block; }
   .cover-block { display:block; }
   .cover-kicker { margin:0 0 6mm; font-size:7.5pt; letter-spacing:.32em; color:var(--ink-soft);
@@ -494,7 +547,10 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
 
   .chapter-break { display:flex; flex-direction:column; align-items:center; justify-content:center;
     min-height: ${coverMinH}mm; text-align:center; break-before: page; }
-  .chapter-inline { break-before: page; padding-top: 2mm; margin-bottom: 6mm; }
+  /* flow-root：章头最后那条 .rule 的 14px 下外边距不许塌出容器，
+     否则 DOM 里量到的高度比 inlineHeadingHeightCm 算出来的少 7mm 左右，
+     网格页就会多留一块白、或者反过来被顶到下一页。 */
+  .chapter-inline { break-before: page; padding-top: 2mm; margin-bottom: 6mm; display: flow-root; }
   .chapter-no { margin:0; font-size:10pt; letter-spacing:.32em; color:#8a8a8a; }
   .chapter-name { margin:10px 0 0; font-size:26pt; font-weight:600; letter-spacing:.04em; }
   .chapter-inline .chapter-name { font-size:17pt; }
@@ -512,7 +568,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .ov-cell { margin:0; break-inside: avoid; }
   .ov-cell img, .ov-ph { width:100%; aspect-ratio: 3 / 2; object-fit: cover; background:#f2efe9; display:block; }
   .ov-cell figcaption { margin-top:1.8mm; font-size:8.5pt; color:var(--ink-soft); text-align:left;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+    overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
   .ov-cell figcaption b { font-weight:400; color:var(--ink); margin-right:2mm; }
 
   .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 0 12px; }
@@ -546,32 +602,44 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .gitem figure { margin:0; height:100%; display:flex; align-items:center; justify-content:center; }
   .gitem figure img { max-width:100%; max-height:100%; object-fit:contain; }
   .gph { width:100%; height:100%; background:#f2efe9; }
-  /* 积木里的字号以格子规划出的 fontPt 为基准（内联在 .gitem 上），子元素一律按 em 缩放 */
-  .gitem .idx { margin:0; text-align:left; font-size:1em; }
-  .gitem h2 { margin:0; text-align:left; font-size:1.45em; line-height:1.25; letter-spacing:.02em; }
+  /* 积木里的字号以格子规划出的 fontPt 为基准（内联在 .gitem 上），子元素一律按 em 缩放。
+     下面每个块的行高都必须和 pdf-grid.ts 里的测量口径一一对应（1.25/1.45/1.65…），
+     否则「量出来 5 行、画出来 6 行」，最后一行又会被 overflow:hidden 切掉。 */
+  .gitem .idx { margin:0; text-align:left; font-size:1em; line-height:1.3; font-variant-numeric:tabular-nums; }
+  .gitem h2 { margin:0; text-align:left; font-size:1.45em; line-height:1.25; letter-spacing:.02em;
+    overflow-wrap:anywhere; }
   .gitem .rule { display:none; }
-  .gitem .cap { margin:0; text-align:left; font-size:1em; line-height:1.45; }
-  .gitem .story { margin:0; font-size:1em; line-height:1.65; text-indent:2em; text-align:justify; }
-  .gitem .techs { margin:0; max-height:100%; overflow:hidden; }
+  /* 图注：小一号 + 灰字 + 行首破折线，和正文分层次（不要和正文糊在一起） */
+  .gitem .cap { margin:0; text-align:left; font-size:1em; line-height:1.45; color:var(--ink-soft);
+    overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+  .gitem .story { margin:0; font-size:1em; line-height:1.65; text-indent:2em; text-align:justify;
+    text-justify:inter-ideograph; word-break:normal; overflow-wrap:anywhere;
+    font-variant-numeric:tabular-nums; }
+  /* 拍摄手法：整行由代码按真实行高排好，这里不再用 max-height 兜底（那就是「切字」元凶） */
+  .gitem .techs { margin:0; }
   .gitem .tech { font-size:1em; line-height:1.5; margin-bottom:0.5mm; gap:1.5mm; }
   .gitem .tech span { flex:0 0 2.6em; }
   .gitem .exif, .gitem .category, .gitem .mood, .gitem .alt, .gitem .tags {
-    margin:0; text-align:left; font-size:1em; }
-  .gitem .chips { margin:0; justify-content:flex-start; gap:1.2mm; }
-  .gitem .chip { font-size:1em; padding:0.3mm 1.2mm; }
+    margin:0; text-align:left; font-size:1em; line-height:1.5;
+    overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+  .gitem .tags { line-height:1.6; }
+  .gitem .chips { margin:0; justify-content:flex-start; align-content:flex-start; gap:1.2mm; }
+  /* 胶囊宽度参与折行计算，所以一律不换行（宽度按单行实测） */
+  .gitem .chip { font-size:1em; padding:0.3mm 1.2mm; line-height:1.35; white-space:nowrap; }
   .gitem .module { margin:0; padding:1.2mm 1.6mm; }
   .gitem .score { gap:2.5mm; }
   .gitem .score.compact { display:block; }
   .gitem .score-num { font-size:2.2em; }
   .gitem .score-num small { font-size:0.45em; }
   .gitem .score-grid { gap:0.4mm 3mm; }
-  .gitem .bar { font-size:0.85em; }
-  .gscore-line { margin:0.4mm 0 0; font-size:0.9em; color:#6b6b6b; }
-  .gitem .advice { margin:0; gap:1.2mm;
+  .gitem .bar { font-size:0.85em; line-height:1.3; }
+  .gscore-line { margin:0.4mm 0 0; font-size:0.9em; line-height:1.45; color:#6b6b6b;
+    font-variant-numeric:tabular-nums; }
+  .gitem .advice { margin:0; gap:1.2mm; align-content:start;
     grid-template-columns:repeat(auto-fit, minmax(4.2cm, 1fr)); }
   .gitem .advice .card { padding:1mm 1.4mm; }
-  .gitem .card-title { font-size:0.85em; margin:0 0 0.5mm; }
-  .gitem .card-line { font-size:1em; line-height:1.5; margin:0; }
+  .gitem .card-title { font-size:0.85em; margin:0 0 0.5mm; line-height:1.35; }
+  .gitem .card-line { font-size:1em; line-height:1.5; margin:0; overflow-wrap:anywhere; }
 
   /* 0.6.3 排版统一：标题一律无衬线，正文用用户选的字体；
      次要信息统一 --ink-soft，分隔线统一 --line。 */

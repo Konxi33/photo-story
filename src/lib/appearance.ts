@@ -32,7 +32,15 @@ export function systemPrefersDark(): boolean {
 export function resolveDark(mode: ThemeMode, fallback: boolean): boolean {
   if (mode === 'dark') return true;
   if (mode === 'light') return false;
-  return systemPrefersDark() || fallback;
+  // 跟随系统：只听系统的。
+  // 0.7.1 修：原来写的是 `systemPrefersDark() || fallback`，而 fallback 是「上次解析出来的深色值」
+  // （applyAppearance 会把解析结果写回 darkMode）。于是只要深色过一次，切回「跟随系统」
+  // 在浅色系统上也永远是深色 —— 用户看到的就是「跟随系统那档根本没反应」。
+  // fallback 只在拿不到 matchMedia 时才用作兜底。
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return systemPrefersDark();
+  }
+  return fallback;
 }
 
 export function readStoredAppearance(): Appearance {

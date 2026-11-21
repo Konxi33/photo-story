@@ -62,7 +62,7 @@ export default function GrowthPage() {
       <div className="px-5 py-8 md:px-8">
         <header className="mb-6">
           <p className="ps-eyebrow">Archive</p>
-          <h1 className="ps-display mt-2 text-[26px] text-ink">摄影档案</h1>
+          <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">摄影档案</h1>
           <p className="mt-2 max-w-[42rem] text-[13px] leading-relaxed text-ink-mid">
             所有项目里的照片都汇总在这里：拍得多不多、什么时候拍、用什么器材、分数怎么走。用来回看自己的习惯。
           </p>

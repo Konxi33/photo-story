@@ -4,7 +4,7 @@
 // 应用外壳：左侧一级导航（常驻 / 悬浮 / 折叠）+ 背景装饰 + 主题 + 转场。
 // 0.4.0：侧栏改为固定贴视口左侧，任何窗口宽度都不会偏移；新增折叠与滑动指示条。
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -20,10 +20,14 @@ import {
   LayoutTemplate,
   Menu,
   ScrollText,
+  Search,
   Settings,
   Swords,
   Trash2,
   ChevronRight,
+  Monitor,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,12 +39,13 @@ import {
   DEFAULT_APPEARANCE,
   applyAppearance,
   readStoredAppearance,
+  resolveDark,
   type Appearance,
 } from '@/lib/appearance';
 import { KvRepository } from '@/lib/db';
 import { checkForUpdate, clearPendingUpdate, readPendingUpdate } from '@/lib/updater';
 import { cn, formatBytes, withTimeout } from '@/lib/utils';
-import type { AppSettings, StorageUsage } from '@/types/domain';
+import type { AppSettings, StorageUsage, ThemeMode } from '@/types/domain';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -101,6 +106,15 @@ interface IndicatorPos {
   height: number;
 }
 
+/**
+ * 0.7.1：指示条几何 + 可见性。
+ * visible=false 表示选中项被列表滚出了可视区（或高度塌成 0），
+ * 这时要「藏起来」而不是画在顶栏上——用户明确要求「绝不允许错位」。
+ */
+interface IndicatorGeom extends IndicatorPos {
+  visible: boolean;
+}
+
 let lastIndicatorValue: (IndicatorPos & { compact: boolean }) | null = null;
 
 function readLastIndicator(compact: boolean): IndicatorPos | null {
@@ -116,6 +130,13 @@ function readInitialAppearance(): Appearance {
 }
 
 const COLLAPSE_KEY = 'ps:sidebar-collapsed';
+
+/** 顶栏那个太阳/月亮/显示器按钮上的说明文字 */
+const THEME_CYCLE_LABEL: Record<ThemeMode, string> = {
+  system: '跟随系统',
+  light: '浅色',
+  dark: '深色',
+};
 
 function readCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
@@ -157,6 +178,19 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     return () => mq.removeEventListener('change', onChange);
   }, [appearance.themeMode]);
 
+  /**
+   * 0.7.1：顶栏的一键外观切换 —— 跟随系统 → 浅色 → 深色 → 跟随系统。
+   * 直接把结果写进 localStorage 并立即应用，跟设置页是同一个数据源，两边不会互相打回。
+   */
+  const cycleTheme = useCallback((): void => {
+    const order: ThemeMode[] = ['system', 'light', 'dark'];
+    const current = appearance.themeMode;
+    const next = order[(order.indexOf(current) + 1) % order.length] ?? 'system';
+    const resolved: Appearance = { ...appearance, themeMode: next, darkMode: resolveDark(next, appearance.darkMode) };
+    setAppearance(resolved);
+    applyAppearance(resolved);
+  }, [appearance]);
+
   // 设置
   useEffect(() => {
     void (async () => {
@@ -170,13 +204,24 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         setSettings(saved);
         if (saved) {
           const stored = readStoredAppearance();
-          setAppearance({
-            darkMode: saved.darkMode ?? false,
-            themeMode: saved.themeMode ?? (saved.darkMode ? 'dark' : 'light'),
-            glass: saved.glass ?? false,
-            glassBlur: saved.glassBlur ?? 24,
-            fontFamily: saved.fontFamily ?? stored.fontFamily ?? 'round',
-          });
+          const hasStored =
+            typeof window !== 'undefined' && window.localStorage.getItem('ps:appearance') !== null;
+          // 0.7.1 修：外观以 localStorage 为准。
+          // 设置页的实时预览写的就是 localStorage，而这里以前无条件拿 kv 里的旧值盖回来 ——
+          // 于是「在设置里改回浅色」之后，随便进任何页面（每页都各挂一个 AppShell）又被改回深色，
+          // 表现出来就是「改回浅色有时候不生效」。kv 只在老用户没有本地记录时兜底。
+          setAppearance(
+            hasStored
+              ? stored
+              : {
+                  darkMode: saved.darkMode ?? false,
+                  themeMode: saved.themeMode ?? (saved.darkMode ? 'dark' : 'light'),
+                  glass: saved.glass ?? false,
+                  glassBlur: saved.glassBlur ?? 24,
+                  fontFamily: saved.fontFamily ?? stored.fontFamily ?? 'round',
+                },
+          );
+
           if (typeof window !== 'undefined' && window.localStorage.getItem(COLLAPSE_KEY) === null) {
             setCollapsed(saved.sidebarCollapsed ?? false);
           }
@@ -355,57 +400,183 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     prevIndex.current = index;
   }, [pathname]);
 
-  const blur = settings?.backgroundBlur ?? 14;
-  const animations = settings?.animations !== false;
+  /* ------------------- 0.7.1：悬浮展开的「热区状态机」 ------------------- */
+
   // 悬浮模式下不折叠（折叠按钮禁用）；常驻模式可折叠成图标栏
   const compact = !hoverSidebar && collapsed;
-  const sidebarWidth = compact ? 'w-[4.5rem]' : 'w-60';
+  const sidebarWidth = compact ? 'w-[var(--rail-w-compact)]' : 'w-[var(--rail-w)]';
+
+  /**
+   * 0.7.0 的写法把 onMouseEnter / onMouseLeave 双双挂在一个宽度会塌成 0 的外层容器上：
+   * 收起时 aside 被 translate 到屏幕外，容器宽度归零，只剩 10px 把手悬在别处；
+   * 鼠标一进入就被 translate 出去 → 触发 mouseleave → 再移回来 → 再 enter，
+   * 每秒十几次高频开关（用户实测：「闪烁横跳、点不开、也不会自己弹出来」）。
+   *
+   * 现在「开」和「关」彻底拆开，互不触发：
+   *   · 开：只有「贴视口左缘的窄缝热区」和「边缘把手」能开；热区在展开时 pointer-events-none 让位。
+   *   · 关：只由「离开面板」触发，且延迟 HOVER_CLOSE_DELAY 才真收，
+   *     给用户穿过「面板到视口边缘那 12px 间隙」留时间，也容错「移进面板又移出来」。
+   */
+  const HOVER_CLOSE_DELAY = 280;
+  const closeTimerRef = useRef<number | null>(null);
+
+  const cancelHoverClose = (): void => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const openHoverSidebar = (): void => {
+    cancelHoverClose();
+    setSidebarOpen(true);
+  };
+
+  const scheduleHoverClose = (): void => {
+    cancelHoverClose();
+    if (typeof window === 'undefined') return;
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setSidebarOpen(false);
+    }, HOVER_CLOSE_DELAY);
+  };
+
+  const closeHoverSidebar = (): void => {
+    cancelHoverClose();
+    setSidebarOpen(false);
+  };
+
+  // 卸载时清掉待执行的收起定时器，免得对已卸载组件 setState
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
+
+  // 切回常驻模式时把悬浮面板收起来，避免下次切回「悬浮」时留着上一次的开着状态
+  useEffect(() => {
+    if (!hoverSidebar) {
+      cancelHoverClose();
+      setSidebarOpen(false);
+    }
+  }, [hoverSidebar]);
+
+  // Esc 收起（只在悬浮模式且面板开着时挂监听）
+  useEffect(() => {
+    if (!hoverSidebar || !sidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        cancelHoverClose();
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hoverSidebar, sidebarOpen]);
+
+  /**
+   * 0.7.1：把「折叠」这个全局状态限定在常驻模式。
+   *
+   * globals.css 里有两条无条件生效的规则：
+   *   html[data-sidebar='compact'] aside.ps-sidebar { width: var(--rail-w-compact) !important }
+   *   html[data-sidebar='compact'] aside.ps-sidebar [data-sidebar-label] { display: none !important }
+   * 而 data-sidebar 是首帧脚本（layout.tsx 的 APPEARANCE_SCRIPT）按 localStorage 打的。
+   * 用户先折叠过一次（记住 '1'），再切到「悬浮展开」：悬浮面板会被压成 4.75rem、文字全没，
+   * 看起来就是「点不开」。切模式时把 dataset 重新对齐到当前模式即可。
+   */
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.sidebar = compact ? 'compact' : 'expanded';
+  }, [compact]);
+
+  const blur = settings?.backgroundBlur ?? 14;
+  const animations = settings?.animations !== false;
+
+  // 0.7.0：顶栏左侧的「当前位置」——分组名当眉标，模块名当正文
+  const activeNav =
+    [...FLAT, SETTINGS_ITEM].find(
+      (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
+    ) ?? null;
+  const activeGroup =
+    GROUPS.find((group) => group.items.some((item) => item.href === activeNav?.href))?.title ?? '设置';
 
   return (
-    <div className="relative min-h-dvh" style={{ backgroundColor: 'var(--app-bg)' }}>
-      {/* 背景装饰 */}
+    <div className="relative min-h-dvh">
+      {/* 背景装饰：两层柔光缓慢漂移，顶部再加一条极细的暖光，避免大面积纯色 */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden>
         <div
           className={cn(
-            'absolute -top-32 -left-24 h-[44vw] w-[44vw] rounded-full',
+            'absolute -top-40 -left-32 h-[46vw] w-[46vw] rounded-full opacity-90',
             animations && 'ps-drift',
           )}
           style={{ background: 'var(--blob-1)', filter: `blur(${blur}px)` }}
         />
         <div
           className={cn(
-            'absolute top-1/3 -right-32 h-[52vw] w-[52vw] rounded-full',
+            'absolute top-1/4 -right-40 h-[54vw] w-[54vw] rounded-full opacity-90',
             animations && 'ps-drift-slow',
           )}
           style={{ background: 'var(--blob-2)', filter: `blur(${blur}px)` }}
         />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-copper/25 to-transparent" />
       </div>
 
       {/* 侧栏：固定在视口最左，不随内容宽度偏移 */}
       {hoverSidebar ? (
-        <div
-          className="fixed top-0 left-0 z-40 hidden h-dvh md:block"
-          onMouseEnter={() => setSidebarOpen(true)}
-          onMouseLeave={() => setSidebarOpen(false)}
-        >
-          {/* 收起时的边缘提示：一条细窄的渐变 + 箭头，不再是一整块深色 */}
+        <>
+          {/* 热区：贴着视口左缘的一条窄缝（8px、整屏高），鼠标进来就展开。
+              展开时 pointer-events-none 让位 —— 否则它会压在面板左边缘上抢事件，
+              面板的 mouseleave 永远不触发，就收不回去。 */}
+          <div
+            data-sidebar-hotzone
+            aria-hidden
+            className={cn(
+              'fixed inset-y-0 left-0 z-40 hidden w-[8px] md:block',
+              'transition-opacity duration-[var(--dur-2)] ease-[var(--ease-out)]',
+              sidebarOpen ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100',
+            )}
+            onMouseEnter={openHoverSidebar}
+          />
+
+          {/* 收起时的把手：一小片悬浮玻璃贴条，整块都在视口内（left-0、宽 9px），不会跑出去 */}
           <button
             type="button"
             aria-label="展开功能栏"
-            onFocus={() => setSidebarOpen(true)}
+            aria-expanded={sidebarOpen}
+            onClick={openHoverSidebar}
+            onMouseEnter={openHoverSidebar}
+            onFocus={openHoverSidebar}
             className={cn(
-              'group/edge absolute top-1/2 left-0 z-10 flex h-16 w-[7px] -translate-y-1/2 items-center justify-center rounded-r-full',
-              'bg-ink/12 transition-all duration-300 hover:w-[10px] hover:bg-ink/25',
+              'group/edge fixed top-1/2 left-0 z-40 h-16 w-[9px] -translate-y-1/2 items-center justify-center',
+              'rounded-r-full border border-l-0 bg-surface/70 backdrop-blur-md hover:w-[12px]',
+              'hidden transition-[opacity,width] duration-[var(--dur-2)] ease-[var(--ease-out)] md:flex',
               sidebarOpen ? 'pointer-events-none opacity-0' : 'opacity-100',
             )}
+            style={{ borderColor: 'var(--hairline)' }}
           >
-            <ChevronRight className="h-3 w-3 text-ink/50" />
+            <span className="h-5 w-[2px] rounded-full bg-copper/45 transition-colors group-hover/edge:bg-copper" />
+            <ChevronRight className="absolute -right-0.5 h-2.5 w-2.5 text-ink-faint opacity-0 transition-opacity duration-[var(--dur-2)] group-hover/edge:opacity-100" />
           </button>
 
+          {/* 悬浮面板：和常驻模式同一套玻璃观感，进出只用 transform（GPU 合成，不动 left/width）。
+              关闭时 inert，这样 tab 键不会聚焦到屏幕外的导航上。
+              鼠标在面板内：取消待收；移出面板：延迟 280ms 才收。 */}
           <aside
+            aria-label="主导航"
+            inert={!sidebarOpen}
+            onMouseEnter={cancelHoverClose}
+            onMouseLeave={scheduleHoverClose}
+            onFocus={openHoverSidebar}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                scheduleHoverClose();
+              }
+            }}
             className={cn(
-              'ps-sidebar absolute top-0 left-0 flex h-full w-60 flex-col border-r border-line/50 bg-paper/92 px-3 py-4 shadow-[24px_0_60px_-40px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-transform duration-[320ms] ease-[var(--ease-out)]',
-              sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+              'ps-sidebar ps-sidebar-hover ps-rail ps-glass-strong fixed top-[var(--shell-gap)] bottom-[var(--shell-gap)] left-[var(--shell-gap)] z-40 w-[var(--rail-w)] flex-col overflow-hidden px-3 py-4 will-change-transform',
+              'hidden transition-transform duration-[220ms] ease-[var(--ease-out)] md:flex',
+              sidebarOpen ? 'translate-x-0' : 'translate-x-[calc(-100%-1.5rem)]',
             )}
           >
             <SidebarContent
@@ -414,14 +585,14 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
               compact={false}
               collapseDisabled
               onToggleCollapse={() => undefined}
-              onNavigate={() => setSidebarOpen(false)}
+              onNavigate={closeHoverSidebar}
             />
           </aside>
-        </div>
+        </>
       ) : (
         <aside
           className={cn(
-            'ps-sidebar fixed top-0 left-0 z-40 hidden h-dvh shrink-0 flex-col border-r border-line/50 px-3 pt-4 pb-5 transition-[width] duration-[320ms] ease-[var(--ease-out)] md:flex',
+            'ps-sidebar ps-rail ps-glass-strong fixed top-[var(--shell-gap)] bottom-[var(--shell-gap)] left-[var(--shell-gap)] z-40 hidden shrink-0 flex-col overflow-hidden px-3 py-4 transition-[width] duration-[360ms] ease-[var(--ease-out)] md:flex',
             sidebarWidth,
           )}
         >
@@ -457,41 +628,101 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         </aside>
       )}
 
-      {/* 内容：给固定侧栏让位 */}
+      {/* 内容：给浮动侧栏让位（侧栏是浮起来的，所以要让出「栏宽 + 两侧空隙」） */}
       <div
         className={cn(
-          'relative min-w-0 transition-[padding] duration-[320ms] ease-[var(--ease-out)]',
-          hoverSidebar ? 'md:pl-3' : compact ? 'md:pl-[4.5rem]' : 'md:pl-60',
+          'relative min-w-0 transition-[padding] duration-[360ms] ease-[var(--ease-out)]',
+          compact
+            ? 'md:pl-[calc(var(--rail-w-compact)+var(--shell-gap)*2)]'
+            : 'md:pl-[calc(var(--rail-w)+var(--shell-gap)*2)]',
         )}
       >
         {showTopBar && (
-          <div
-            data-glass-bar
-            className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line/45 px-5 md:px-7"
-          >
-            <div className="flex items-center gap-1 md:hidden">
-              {[...FLAT, SETTINGS_ITEM].map((item) => {
-                // 0.5.0：与侧栏一致用前缀匹配，否则进 /projects/<id> 后顶栏一个都不高亮
-                const active =
-                  pathname === item.href || pathname.startsWith(item.href + '/');
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      'ps-pressable rounded-lg p-2 transition-colors duration-200',
-                      active ? 'bg-ink text-paper' : 'text-ink-mid hover:bg-ink/6 hover:text-ink',
-                    )}
-                    aria-label={item.label}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </Link>
-                );
-              })}
-            </div>
-            <div className="ml-auto flex items-center gap-2">{actions}</div>
-          </div>
+          <>
+            <header
+              data-glass-bar
+              className="sticky top-0 z-30 flex h-[var(--header-h)] items-center gap-3 px-5 md:px-8"
+            >
+              {/* 当前位置：分组名当眉标，模块名当正文，替代过去空荡荡的顶栏 */}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="hidden text-[10.5px] font-semibold tracking-[0.16em] text-ink-faint uppercase md:inline">
+                  {activeGroup}
+                </span>
+                <span className="hidden h-3 w-px bg-line/70 md:inline" />
+                <span className="truncate text-[13px] font-medium tracking-[-0.01em]">
+                  {activeNav?.label ?? APP_NAME}
+                </span>
+              </div>
+
+              {/* 移动端一级导航（桌面端在侧栏里，这里只在窄屏出现） */}
+              <div className="ps-scroll-thin -mx-1 flex items-center gap-1 overflow-x-auto md:hidden">
+                {[...FLAT, SETTINGS_ITEM].map((item) => {
+                  const active =
+                    pathname === item.href || pathname.startsWith(item.href + '/');
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        'ps-pressable flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-colors duration-200',
+                        active
+                          ? 'bg-ink text-paper'
+                          : 'text-ink-mid hover:bg-ink/6 hover:text-ink',
+                      )}
+                      aria-label={item.label}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                {/* 0.7.1：外观一键切换（跟随系统 → 浅色 → 深色 循环），
+                    不用每次都钻进设置页去找开关 */}
+                <button
+                  type="button"
+                  onClick={cycleTheme}
+                  title={`外观：${THEME_CYCLE_LABEL[appearance.themeMode]}（点一下切下一个）`}
+                  aria-label={`外观：${THEME_CYCLE_LABEL[appearance.themeMode]}，点击切换`}
+                  className="ps-chip h-8 w-8 justify-center px-0"
+                >
+                  {appearance.themeMode === 'dark' ? (
+                    <Moon className="h-3.5 w-3.5" />
+                  ) : appearance.themeMode === 'light' ? (
+                    <Sun className="h-3.5 w-3.5" />
+                  ) : (
+                    <Monitor className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
+                  title="搜索或跳转（Ctrl+K）"
+                  className="ps-chip hidden h-8 gap-2 pr-1.5 pl-2.5 md:inline-flex"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  <span className="text-[11.5px]">搜索 / 跳转</span>
+                  <span className="ps-kbd ml-1">Ctrl K</span>
+                </button>
+                {actions}
+              </div>
+            </header>
+            {/* 顶栏下沿的一道光：换页时从中间向两边扫开，给转场一个「收尾」动作 */}
+            <div
+              key={`line-${pathname}`}
+              aria-hidden
+              className={cn(
+                'pointer-events-none sticky top-[var(--header-h)] z-20 -mt-px h-px',
+                animations && 'ps-stage-line',
+              )}
+              style={{
+                background:
+                  'linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-copper) 46%, transparent), transparent)',
+              }}
+            />
+          </>
         )}
 
         <div
@@ -530,6 +761,7 @@ function SidebarContent({
   onNavigate?: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<string, HTMLAnchorElement>());
   const barRef = useRef<HTMLSpanElement>(null);
   const prevPos = useRef<IndicatorPos | null>(readLastIndicator(compact));
@@ -548,6 +780,17 @@ function SidebarContent({
    *
    * 用 element.animate 显式给出 起点 → 拉丝 → 终点 三个关键帧，
    * 元素哪怕是刚挂上去的，也会真的从旧位置滑过来。
+   *
+   * 0.7.1 修的是「列表一滚，滑条留在原地」。
+   * 指示条挂在 rootRef（整块不滚动的外层）里，位置必须用视口坐标差值算：
+   * getBoundingClientRect 本身已经扣掉了滚动量，所以「量一次就够」这个前提是错的 ——
+   * 旧版只在挂载和尺寸变化时量，滚动时不重量，条就留在原处。现在：
+   *   · 滚动容器挂 passive 的 scroll 监听，只在 rAF 里量一次（item / list / root 三个 rect），
+   *     用 transform + height 落位，别的什么都不读，避免每帧多次强制 layout；
+   *   · 对「被滚出可视区」做裁剪：项滚到列表顶部之上时只画剩下那一截，全出去了就隐藏，
+   *     绝不把条画到顶栏上（用户要求「绝不允许错位」）；
+   *   · 滚动中条略淡（0.55）略短（62%），手一停就用 spring 啪地吸附回整条；
+   *   · 窗口缩放 / 字体加载 / 用量异步长高 / 折叠展开，仍由 ResizeObserver + 前 120 帧校正兜住。
    */
   useEffect(() => {
     const item = itemRefs.current.get(activeHref);
@@ -558,25 +801,67 @@ function SidebarContent({
       return;
     }
 
+    // 侧栏里唯一会滚的容器；底部的「设置」项在它外面，不参与裁剪
+    const list = scrollRef.current;
+    const scrollable = list && list.contains(item) ? list : null;
+
+    /*
+     * 0.7.1：选中项整个被滚出可视区时（窗口矮 / 直接打开深链接 / 从别处跳进来 /
+     * 底部「本地存储」块异步长高把导航顶下去），指示条没有可见位置可画，用户也
+     * 找不到自己选中了哪一项。这里把列表最小幅度地滚到刚好能看见它为止。
+     * 只在「用户没自己滚过」的时候调用，不会抢用户的手感。
+     */
+    let selfScrollUntil = 0;
+    const revealIntoView = (): boolean => {
+      if (!scrollable) return false;
+      const view = scrollable.getBoundingClientRect();
+      const rect = item.getBoundingClientRect();
+      if (rect.bottom > view.top && rect.top < view.bottom) return false;
+      const delta = rect.top >= view.bottom ? rect.bottom - view.bottom : rect.top - view.top;
+      if (delta === 0) return false;
+      scrollable.scrollTop += delta;
+      // 自己滚出来的 scroll 事件会异步回来，别把它当成用户滚动去做「缩+淡」
+      selfScrollUntil = performance.now() + 120;
+      return true;
+    };
+    const revealed = revealIntoView();
+    let userScrolled = false;
+
+    // 滚动中/吸附中：期间不要跑 sync，否则会和滚动的逐帧落位打架
+    let scrolling = false;
+
     // 用 rect 差值测量：侧栏本身不带 transform，换页动画只作用在内容区，
     // 所以这里的坐标是稳定的，不会像全局 getBoundingClientRect 那样漂移。
-    const measure = (el: HTMLElement): IndicatorPos => {
-      const rect = el.getBoundingClientRect();
-      const base = root.getBoundingClientRect();
-      return { top: rect.top - base.top, height: rect.height };
+    const measure = (): IndicatorGeom => {
+      const rootRect = root.getBoundingClientRect();
+      const rect = item.getBoundingClientRect();
+      const top = rect.top - rootRect.top;
+      if (!scrollable) return { top, height: rect.height, visible: rect.height > 0.5 };
+      const viewRect = scrollable.getBoundingClientRect();
+      const viewTop = viewRect.top - rootRect.top;
+      const viewBottom = viewRect.bottom - rootRect.top;
+      const clippedTop = Math.max(top, viewTop);
+      const clippedBottom = Math.min(top + rect.height, viewBottom);
+      const clippedHeight = clippedBottom - clippedTop;
+      if (clippedHeight <= 0.5) return { top, height: rect.height, visible: false };
+      return { top: clippedTop, height: clippedHeight, visible: true };
     };
 
-    const target = measure(item);
+    const target = measure();
     const from = prevPos.current;
-    prevPos.current = target;
-    lastIndicatorValue = { ...target, compact };
+    prevPos.current = { top: target.top, height: target.height };
+    lastIndicatorValue = { ...prevPos.current, compact };
 
-    let applied: IndicatorPos = { ...target };
+    let applied: IndicatorPos = { top: target.top, height: target.height };
 
-    const apply = (pos: IndicatorPos): void => {
-      applied = { ...pos };
-      bar.style.transform = `translateY(${pos.top}px)`;
-      bar.style.height = `${pos.height}px`;
+    /** 落位：shrink < 1 时以「中心不动」的方式缩短，滚动中拿它做轻量化 */
+    const render = (geom: IndicatorGeom, shrink = 1, opacity = 1): void => {
+      const height = Math.max(2, geom.height * shrink);
+      const top = geom.top + (geom.height - height) / 2;
+      applied = { top, height };
+      bar.style.transform = `translateY(${top}px)`;
+      bar.style.height = `${height}px`;
+      bar.style.opacity = geom.visible ? String(opacity) : '0';
     };
 
     /**
@@ -589,22 +874,100 @@ function SidebarContent({
      * 之后交给 ResizeObserver 兜住窗口缩放等后续变化。
      */
     const sync = (): boolean => {
-      const now = measure(item);
-      if (Math.abs(now.top - applied.top) > 0.5 || Math.abs(now.height - applied.height) > 0.5) {
-        apply(now);
-        prevPos.current = now;
-        lastIndicatorValue = { ...now, compact };
+      if (scrolling) return false;
+      const now = measure();
+      if (!now.visible) {
+        // 布局漂移把选中项挤出可视区（用量块迟一步长高、字体后加载）：只要用户
+        // 还没自己滚过，就把列表滚回来；用户滚过之后就让条老老实实消失。
+        if (!userScrolled && revealIntoView()) {
+          const again = measure();
+          render(again);
+          prevPos.current = { top: again.top, height: again.height };
+          lastIndicatorValue = { ...prevPos.current, compact };
+          return true;
+        }
+        if (bar.style.opacity !== '0') bar.style.opacity = '0';
+        return false;
+      }
+      // 位置没动但透明度还是 0（选中项刚从可视区外滚回来 / 窗口从矮变高）也要补一次
+      const moved =
+        Math.abs(now.top - applied.top) > 0.5 || Math.abs(now.height - applied.height) > 0.5;
+      if (moved || bar.style.opacity !== '1') {
+        render(now);
+        prevPos.current = { top: now.top, height: now.height };
+        lastIndicatorValue = { ...prevPos.current, compact };
         return true;
       }
       return false;
     };
 
-    // 首次出现（没有上一项）：直接落位，只做淡入
-    const first = !from || Math.abs(from.top - target.top) < 0.5;
+    /* --------------------- 滚动跟随（0.7.1 的核心修复） --------------------- */
+
+    const SCROLL_SHRINK = 0.62; // 滚动中条只有 62% 长，视觉上「轻」一点
+    const SCROLL_OPACITY = 0.55;
+    let scrollRaf = 0;
+    let scrollEndTimer = 0;
+
+    /** 手停下：从「滚动态」弹回整条（spring 吸附，200ms 内结束，不晃眼） */
+    const settleAfterScroll = (): void => {
+      scrollEndTimer = 0;
+      if (!scrolling) return;
+      scrolling = false;
+      const now = measure();
+      const shrunk: IndicatorPos = { ...applied };
+      render(now);
+      if (!now.visible) return;
+      bar.animate(
+        [
+          {
+            transform: `translateY(${shrunk.top}px)`,
+            height: `${shrunk.height}px`,
+            opacity: SCROLL_OPACITY,
+            offset: 0,
+            easing: 'cubic-bezier(0.34, 1.32, 0.64, 1)',
+          },
+          {
+            transform: `translateY(${now.top}px)`,
+            height: `${now.height}px`,
+            opacity: 1,
+            offset: 1,
+          },
+        ],
+        { duration: 200, easing: 'linear', fill: 'none' },
+      );
+      prevPos.current = { top: now.top, height: now.height };
+      lastIndicatorValue = { ...prevPos.current, compact };
+    };
+
+    const onScroll = (): void => {
+      // 上面 reveal 造成的那一次 scroll 事件：只落位，不进「滚动态」
+      if (performance.now() < selfScrollUntil) {
+        render(measure());
+        return;
+      }
+      userScrolled = true;
+      if (!scrolling) {
+        scrolling = true;
+        // 滚动优先：把导航切换的 WAAPI 动画掐掉，免得两边同时写 transform
+        bar.getAnimations().forEach((animation) => animation.cancel());
+      }
+      if (scrollEndTimer) window.clearTimeout(scrollEndTimer);
+      scrollEndTimer = window.setTimeout(settleAfterScroll, 130);
+      if (scrollRaf) return; // 一帧只算一次
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = 0;
+        render(measure(), SCROLL_SHRINK, SCROLL_OPACITY);
+      });
+    };
+
+    if (scrollable) scrollable.addEventListener('scroll', onScroll, { passive: true });
+
+    // 首次出现（没有上一项）：直接落位，只做淡入；刚被 reveal 滚过也一样，
+    // 因为 from 里的坐标属于旧的滚动偏移，拿来当拉丝起点会画出错位的长条
+    const first = !from || revealed || Math.abs(from.top - target.top) < 0.5;
 
     if (first) {
-      apply(target);
-      bar.style.opacity = '1';
+      render(target);
       bar.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
     } else {
       const distance = Math.abs(target.top - from.top);
@@ -616,8 +979,7 @@ function SidebarContent({
       const height = Math.max(from.height, target.height) + extra;
       const stretched: IndicatorPos = { top, height };
 
-      apply(target);
-      bar.style.opacity = '1';
+      render(target);
 
       const duration = Math.round(Math.min(520, 240 + distance * 0.45));
 
@@ -655,13 +1017,24 @@ function SidebarContent({
     };
     raf = requestAnimationFrame(tick);
 
-    // 校正二：任何后续的尺寸变化（窗口缩放、字体加载、用量刷新）都重新落位
+    // 校正二：任何后续的尺寸变化（窗口缩放、字体加载、用量刷新、折叠展开）都重新落位
     const ro = new ResizeObserver(() => sync());
     ro.observe(root);
     if (item.parentElement) ro.observe(item.parentElement);
+    if (scrollable) ro.observe(scrollable);
+
+    // 校正三：字体后加载会改行高，DOM 尺寸变化不一定能触发到上面两个观察者
+    if (typeof document !== 'undefined' && document.fonts) {
+      void document.fonts.ready.then(() => sync());
+    }
+    window.addEventListener('resize', sync);
 
     return () => {
       cancelAnimationFrame(raf);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      if (scrollEndTimer) window.clearTimeout(scrollEndTimer);
+      if (scrollable) scrollable.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', sync);
       ro.disconnect();
     };
   }, [activeHref, compact]);
@@ -673,26 +1046,28 @@ function SidebarContent({
         ref={barRef}
         data-sidebar-indicator
         aria-hidden
-        className="pointer-events-none absolute left-[2px] z-10 w-[2.5px] rounded-full bg-ink opacity-0"
+        className="pointer-events-none absolute left-[3px] z-10 w-[2.5px] rounded-full bg-copper opacity-0"
         style={{ top: 0, height: 0, transform: 'translateY(0px)' }}
       />
+
       {/* 顶部：品牌 + 折叠按钮 */}
-      <div className={cn('mb-7 flex items-center gap-2.5', compact ? 'justify-center' : 'px-1')}>
+      <div className={cn('mb-5 flex items-center gap-2.5', compact ? 'justify-center' : 'px-1')}>
         <Link
           href="/home"
           onClick={onNavigate}
-          className="ps-pressable group flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-ink text-paper shadow-[0_2px_8px_-4px_rgba(0,0,0,0.5)]"
+          className="ps-pressable group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-ink text-paper shadow-[0_8px_18px_-12px_rgba(0,0,0,0.8)]"
           title={APP_NAME}
         >
-          <Images className="h-[15px] w-[15px] transition-transform duration-[var(--dur-3)] group-hover:scale-110" />
+          <Images className="h-4 w-4 transition-transform duration-[var(--dur-3)] group-hover:scale-110" />
+          <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full bg-copper ring-2 ring-[color-mix(in_srgb,var(--color-surface)_86%,transparent)]" />
         </Link>
         {!compact && (
-          <span
-            data-sidebar-label
-            className="truncate text-[14px] font-semibold tracking-[-0.01em]"
-          >
-            {APP_NAME}
-          </span>
+          <div data-sidebar-label className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-semibold tracking-[-0.015em]">{APP_NAME}</div>
+            <div className="mt-0.5 truncate text-[10px] font-medium tracking-[0.16em] text-ink-faint uppercase">
+              Photo Story
+            </div>
+          </div>
         )}
         {!compact && (
           <button
@@ -702,7 +1077,7 @@ function SidebarContent({
             title={collapseDisabled ? '悬浮模式下不支持折叠' : '收起文字，只显示图标'}
             aria-label="折叠功能栏"
             className={cn(
-              'ps-pressable ml-auto flex h-7 w-7 items-center justify-center rounded-lg transition-colors',
+              'ps-pressable flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors',
               collapseDisabled
                 ? 'cursor-not-allowed text-ink-faint/50'
                 : 'text-ink-faint hover:bg-ink/6 hover:text-ink',
@@ -725,16 +1100,33 @@ function SidebarContent({
         </button>
       )}
 
+      {/* 搜索 / 跳转：和顶栏是同一个命令面板，这里给一个常驻入口 */}
+      {!compact && (
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+          }
+          className="mb-4 flex h-9 w-full items-center gap-2 rounded-[12px] border border-[color:var(--hairline)] bg-surface-2/40 px-2.5 text-left text-[12.5px] text-ink-faint transition-colors duration-200 hover:border-copper/30 hover:text-ink"
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 truncate">搜索模块 / 项目</span>
+          <span className="ps-kbd">Ctrl K</span>
+        </button>
+      )}
+
       {/* 0.6.3：给指示条留一条窄缝（pl-[7px]）。原来指示条压在选中项自己的圆角里，
-          两团深色叠在一起，看起来像「滑条和别的东西重叠了」。 */}
-      <div className="relative grid gap-6 pl-[7px]">
+          两团深色叠在一起，看起来像「滑条和别的东西重叠了」。
+          0.7.1：这个滚动容器是指示条跟随的对象，scrollRef 只在这里用；别拿掉。 */}
+      <div
+        ref={scrollRef}
+        data-sidebar-scroll
+        className="ps-scroll-thin relative grid min-h-0 flex-1 gap-5 overflow-y-auto pr-1 pl-[7px]"
+      >
         {GROUPS.map((group) => (
           <div key={group.title} className="grid gap-0.5">
             {!compact && (
-              <p
-                data-sidebar-label
-                className="px-3 pb-1.5 text-[10px] font-medium tracking-[0.18em] text-ink-faint uppercase"
-              >
+              <p data-sidebar-label className="ps-cap px-2.5 pb-2">
                 {group.title}
               </p>
             )}
@@ -755,8 +1147,9 @@ function SidebarContent({
         ))}
       </div>
 
-      {/* 底部：设置 + 存储 + 版本（0.5.1：压成两行，与导航之间加一道细线分区） */}
-      <div className={cn('mt-auto grid gap-1 border-t border-line/40 pt-3', compact ? 'px-0' : 'px-0')}>
+      {/* 底部：设置 + 存储 + 版本 */}
+      <div className={cn('mt-auto grid gap-1.5 pt-3', compact ? 'px-0' : 'px-0')}>
+        <div className="ps-hairline-x mb-1.5" />
         <NavLink
           item={SETTINGS_ITEM}
           active={pathname.startsWith('/settings')}
@@ -769,10 +1162,10 @@ function SidebarContent({
         />
 
         {!compact && (
-          <div className="grid gap-1.5 px-3 pb-1">
+          <div className="grid gap-1.5 px-2.5 pb-1">
             {usage && usage.quota > 0 && (
               <div
-                className="group/storage grid gap-1"
+                className="grid gap-1.5"
                 title={`${formatBytes(usage.usage)} / ${formatBytes(usage.quota)}`}
               >
                 <div className="flex items-center justify-between text-[10.5px] text-ink-faint">
@@ -786,7 +1179,7 @@ function SidebarContent({
                 </div>
                 <div className="h-[3px] w-full overflow-hidden rounded-full bg-ink/8">
                   <div
-                    className="h-full rounded-full bg-ink/45 transition-[width] duration-700 ease-[var(--ease-out)]"
+                    className="h-full rounded-full bg-gradient-to-r from-copper/70 to-copper transition-[width] duration-700 ease-[var(--ease-out)]"
                     style={{
                       width: `${Math.min(100, Math.max(2, (usage.usage / usage.quota) * 100))}%`,
                     }}
@@ -823,14 +1216,12 @@ function NavLink({
       ref={register}
       href={item.href}
       onClick={onNavigate}
+      data-active={active ? 'true' : 'false'}
       title={hint ? (compact ? `${item.label} — ${hint}` : hint) : compact ? item.label : undefined}
       aria-label={hint ? `${item.label}：${hint}` : item.label}
       className={cn(
-        'ps-pressable group/nav relative flex items-center rounded-[9px] text-[13.5px] font-medium transition-[background-color,color] duration-[var(--dur-2)]',
-        compact ? 'h-10 justify-center' : 'gap-2.5 px-3 py-[7px]',
-        active
-          ? 'bg-ink text-paper'
-          : 'text-ink-mid hover:bg-ink/[0.055] hover:text-ink',
+        'ps-navlink ps-pressable group/nav',
+        compact ? 'h-10 justify-center px-0' : 'gap-2.5',
       )}
     >
       <Icon
@@ -839,7 +1230,11 @@ function NavLink({
           !active && 'group-hover/nav:scale-[1.08]',
         )}
       />
-      {!compact && <span data-sidebar-label className="leading-[1.25]">{item.label}</span>}
+      {!compact && (
+        <span data-sidebar-label className="leading-[1.25] tracking-[0.005em]">
+          {item.label}
+        </span>
+      )}
     </Link>
   );
 }

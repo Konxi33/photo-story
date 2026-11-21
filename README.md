@@ -88,7 +88,11 @@ Next.js 15（App Router，`output: 'standalone'`）· React 19 · TypeScript str
 
 ## 版本与更新日志
 
-当前版本 **0.5.6**。每个版本都有一份中文更新日志，见 `docs/更新日志_<版本>.md`；应用内「更新日志」页也能看。
+当前版本 **0.7.1**。每个版本都有一份中文更新日志，见 `docs/更新日志_<版本>.md`；应用内「更新日志」页也能看。
+
+## 贡献者
+
+名单见 [CONTRIBUTORS.md](CONTRIBUTORS.md)：[@Konxi33](https://github.com/Konxi33)（发起人）、[@xinshou5792](https://github.com/xinshou5792)。
 
 ## 已知限制
 
