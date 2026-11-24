@@ -1337,6 +1337,33 @@ body {
   font-weight: 600;
 }
 
+/* ---------------------- 0.7.5：中文排版的收尾 ----------------------
+   1) 标题按词意均衡断行：中文标题折行最刺眼的问题是「第二行只剩一个字」，
+      text-wrap: balance 会把两行拆得一样长。
+   2) 段落按词意收尾（pretty）：避免最后一行只剩一两个字。
+   3) 数字一律等宽，表格与读数上下才对得齐。 */
+.ps-display,
+.ps-page-title,
+h1,
+h2 {
+  text-wrap: balance;
+}
+
+.ps-body,
+p {
+  text-wrap: pretty;
+}
+
+.ps-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 阅读宽度：正文超过 34 个汉字就换行，眼睛不需要来回找行首 */
+.ps-prose {
+  max-width: 34em;
+}
+
 .ps-hairline-x {
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--hairline) 12%, var(--hairline) 88%, transparent);

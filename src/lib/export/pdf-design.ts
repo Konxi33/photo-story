@@ -453,9 +453,11 @@ export function designCss(env: PageEnv): string {
   .pg-chapter-no { margin: 0; color: ${color(s.chapterNo.color)}; ${t(s.chapterNo)} text-transform: none; }
   .pg-chapter-title { margin: 0; color: ${color(s.chapterTitle.color)}; ${t(s.chapterTitle)} }
   .pg-chapter-note { margin: 0 0 0 auto; color: ${color(s.chapterNote.color)}; ${t(s.chapterNote)} }
-  .pg-head { display: flex; align-items: baseline; gap: 4mm; margin: 0 0 ${GAP_TITLE_FIG}mm; }
+  .pg-head { display: flex; align-items: baseline; gap: 4mm; margin: 0 0 ${GAP_TITLE_FIG}mm; break-inside: avoid; break-after: avoid; }
   .pg-no { color: ${color(s.captionNum.color)}; ${t(s.captionNum)} font-variant-numeric: tabular-nums; }
-  .pg-title { margin: 0; color: ${color(s.pageTitle.color)}; ${t(s.pageTitle)} overflow-wrap: anywhere; }
+  /* 标题：两行时按词意均衡断行，不许第二行只剩一个字（0.7.5） */
+  .pg-title { margin: 0; color: ${color(s.pageTitle.color)}; ${t(s.pageTitle)} overflow-wrap: anywhere;
+    text-wrap: balance; text-align: left; max-width: ${Math.min(env.contentW, 118).toFixed(1)}mm; }
   /* 竖构图本该 177mm 高，老的 figure img 的 max-height 会把它硬压小，
      还因为 figure 的 text-align:center 整体右移 —— 这里按毫米预算写死尺寸，
      必须把老的约束全部解除。 */
@@ -464,12 +466,14 @@ export function designCss(env: PageEnv): string {
   .pg-photo-ph { background: #f2f2f2; border-radius: 1mm; }
   /* 图注：比正文小一号、颜色压灰、行首一道破折线 —— 与正文拉开层级，不糊在一起 */
   .pg-cap { margin: ${GAP_FIG_CAP}mm 0 0; color: ${color(s.caption.color)}; ${t(s.caption)}
-    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; break-inside: avoid; break-after: avoid; }
   /* 正文：首行缩进 2em、两端对齐、长单词允许断行（绝不横向溢出被裁）、数字等宽 */
   .pg-story { margin: ${GAP_CAP_BODY}mm 0 0; color: ${color(s.body.color)}; ${t(s.body)}
     ${s.bodyIndent ? 'text-indent: 2em;' : ''} ${s.bodyJustify ? 'text-align: justify;' : ''}
     text-justify: inter-ideograph; overflow-wrap: anywhere; word-break: normal;
-    font-variant-numeric: tabular-nums; hyphens: none; }
+    font-variant-numeric: tabular-nums; hyphens: none;
+    /* 0.7.5：段落首尾不许只留一行（孤行/寡行控制），读起来才不像被切掉 */
+    orphans: 2; widows: 2; }
   .pg-meta { margin: ${GAP_BODY_META}mm 0 0; padding-top: 3mm; border-top: 0.3pt solid ${env.tint.line}; }
   .pg-spec { margin: 0 0 ${GAP_META_ROW}mm; color: ${color(s.specText.color)}; ${t(s.specText)}
     font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

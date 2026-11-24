@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 
+import { polishAnalysis } from '@/lib/ai/polish';
 import type { PhotoAnalysis, PhotoScore, ShootingParams, Technique } from '@/types/domain';
 
 const Text = z.string().trim().catch('');
@@ -228,7 +229,15 @@ export function normalizePhotoAnalysis(input: PhotoAnalysis): {
     ...(scoreAdvice.length > 0 ? { scoreAdvice } : {}),
   };
 
-  return { data, warnings };
+  // 0.7.5：提示词只能「要求」模型，拦不住偶尔漏出来的模板腔。
+  // 这里做一次确定性的收尾（去引号句读、剔空泛词、换软词、删套话、统一标点），
+  // 只删改不该出现的东西，不改写内容、不新增信息。见 src/lib/ai/polish.ts。
+  const polished = polishAnalysis(data);
+  for (const note of polished.notes) {
+    warnings.push(`文案收尾：${note.field} 已修正（${note.reason}）`);
+  }
+
+  return { data: polished.analysis, warnings };
 }
 
 export type ParsePhotoAnalysisResult =

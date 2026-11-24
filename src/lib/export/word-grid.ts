@@ -672,6 +672,8 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
       return [
         new Paragraph({
           alignment: AlignmentType.LEFT,
+          // 0.7.5：标题必须和下面的图片同页 —— 标题落在页底、图片跑到下一页是最难看的排版事故
+          keepNext: true,
           spacing: {
             before: 0,
             after: mmPt(4),
@@ -686,6 +688,7 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
       return [
         new Paragraph({
           alignment: AlignmentType.LEFT,
+          keepNext: true,
           spacing: { before: 0, after: mmPt(1.5), line: Math.round(style.captionNum.linePt * 20), lineRule: LineRuleType.EXACT },
           children: [run(style.captionNum, figureNumber(index + 1, style), headFont)],
         }),
@@ -700,6 +703,7 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
       return [
         new Paragraph({
           alignment: AlignmentType.LEFT,
+          keepLines: true,
           spacing: {
             before: mmPt(2.5),
             after: mmPt(1),

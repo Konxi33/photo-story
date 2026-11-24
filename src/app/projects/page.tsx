@@ -378,6 +378,9 @@ export default function ProjectsPage() {
                 key={project.id}
                 project={project}
                 index={index}
+                // 0.7.5：第一本占两格、封面更宽 —— 书架不该是等大的九宫格，
+                // 最近在做的这一本应该一眼就能认出来。
+                featured={index === 0}
                 onOpen={() => router.push(ROUTES.project(project.id))}
                 onRename={() => {
                   setRenameTarget(project);
@@ -492,6 +495,7 @@ export default function ProjectsPage() {
 function ProjectCard({
   project,
   index,
+  featured = false,
   onOpen,
   onRename,
   onBackup,
@@ -500,6 +504,7 @@ function ProjectCard({
 }: {
   project: ProjectSummary;
   index: number;
+  featured?: boolean;
   onOpen: () => void;
   onRename: () => void;
   onBackup: () => void;
@@ -509,7 +514,10 @@ function ProjectCard({
   const isComplete = project.successCount >= project.photoCount && project.photoCount > 0;
   return (
     <article
-      className="ps-enter group relative overflow-hidden rounded-[14px] border border-line/60 bg-surface transition-[transform,box-shadow,border-color] duration-[380ms] ease-[var(--ease-out)] hover:-translate-y-1 hover:border-ink/15 hover:shadow-[var(--elev-hover)]"
+      className={cn(
+        'ps-enter group relative overflow-hidden rounded-[14px] border border-line/60 bg-surface transition-[transform,box-shadow,border-color] duration-[380ms] ease-[var(--ease-out)] hover:-translate-y-1 hover:border-ink/15 hover:shadow-[var(--elev-hover)]',
+        featured && 'sm:col-span-2',
+      )}
       style={{ ['--ps-delay' as string]: `${120 + index * 55}ms` }}
     >
       {/* 0.6.4 修：整张卡改成真正的链接。重生成进行中时 React 的 onClick 偶发丢失，
@@ -519,11 +527,16 @@ function ProjectCard({
         aria-label={`打开项目 ${project.name}`}
         className="block cursor-pointer rounded-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/40"
       >
-      <div className="relative aspect-16/10 overflow-hidden bg-surface-2">
+      <div className={cn('relative overflow-hidden bg-surface-2', featured ? 'aspect-16/9' : 'aspect-16/10')}>
         <ProjectCover coverPhotoId={project.coverPhotoId} fallback={project.name} />
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/72 via-black/22 to-transparent px-4 pt-12 pb-3">
-          <h3 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-white drop-shadow-sm">
+          <h3
+            className={cn(
+              'truncate font-semibold tracking-[-0.01em] text-white drop-shadow-sm',
+              featured ? 'text-[clamp(18px,2.1vw,24px)]' : 'text-[16px]',
+            )}
+          >
             {project.name}
           </h3>
         </div>
