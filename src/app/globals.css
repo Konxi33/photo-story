@@ -2269,3 +2269,52 @@ html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-lab
   outline: 2px solid color-mix(in srgb, var(--color-copper) 55%, transparent);
   outline-offset: 2px;
 }
+
+/* ============================== 0.7.6 版面语言 ==============================
+   这一版把「段落」当排版单位：小标题前面压一道铜色短规矩线，
+   区块之间用发丝线收口。改的是全站的分节感，不是某个页面。
+   只作用于 h2.ps-eyebrow（区块标题），表单里的字段名是 span，不受影响。 */
+
+h2.ps-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+h2.ps-eyebrow::before {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--color-copper);
+  opacity: 0.75;
+}
+
+/* 发丝线：区块之间的收口。比 border 更轻，浅色纸面上几乎只是一道呼吸 */
+.ps-rule {
+  height: 1px;
+  background: color-mix(in srgb, var(--hairline) 88%, transparent);
+}
+
+/* 分节标题行：左标题、中间线、右读数 —— 项目/评分/更新日志都按这一行说话 */
+.ps-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ps-rule-row > .ps-rule {
+  flex: 1 1 auto;
+}
+
+/* 照片墙滑块在深色纸上要更亮一档，否则铜点糊进底 */
+[data-theme='dark'] .ps-slider::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #000 55%, transparent);
+}
+
+/* 书架卡片：标题用衬线，和页首标题同一套语言 */
+.ps-card-title-serif {
+  font-family: var(--font-display);
+  letter-spacing: 0.005em;
+}

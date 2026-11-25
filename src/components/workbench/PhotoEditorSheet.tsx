@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { analyzePhotoLocally, analyzePhotoWithDescription } from '@/lib/ai';
+import { deriveSceneTitle } from '@/lib/ai/polish';
 import { formatAperture, formatShutter, type ExifInfo } from '@/lib/image/exif';
 import { AssetRepository, PhotoRepository } from '@/lib/db';
 import { cn } from '@/lib/utils';
@@ -68,6 +69,7 @@ function PhotoEditorForm({
   const a = photo.analysis;
 
   const [title, setTitle] = useState(a?.title ?? '');
+  const [titleNote, setTitleNote] = useState<string | null>(null);
   const [story, setStory] = useState(a?.story ?? '');
   const [composition, setComposition] = useState(a?.technique.composition ?? '');
   const [lighting, setLighting] = useState(a?.technique.lighting ?? '');
@@ -256,8 +258,35 @@ function PhotoEditorForm({
               value={title}
               maxLength={TITLE_LIMIT}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如：晨雾"
+              placeholder="例如：雨停之前"
             />
+            {/* 0.7.6：标题更像「图注」而不是「道具名」。这里给一个不花钱的出口：
+                从这篇故事里重新找一句有局面的短句，直接换上去，不走 API */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] leading-relaxed text-ink-faint">
+                写这一帧在干什么、像什么，别写成里面有什么。
+              </span>
+              <button
+                type="button"
+                className="ps-chip shrink-0 px-2 py-1 text-[11px]"
+                onClick={() => {
+                  const next = deriveSceneTitle(story);
+                  if (!next) {
+                    setTitleNote('这段故事里没找到像标题的短句，可以再改改故事，或者手写一个。');
+                    return;
+                  }
+                  setTitle(next);
+                  setTitleNote(`已从故事里取「${next}」，没花钱，也没再调模型。`);
+                }}
+              >
+                从故事里取一个
+              </button>
+            </div>
+            {titleNote && (
+              <p className="text-[11px] leading-relaxed text-ink-faint" aria-live="polite">
+                {titleNote}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-2">

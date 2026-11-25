@@ -347,8 +347,9 @@ export default function ProjectsPage() {
 
       {/* 列表 */}
       <section className="flex-1">
-        <div className="mb-4 flex items-baseline justify-between">
+        <div className="mb-4 flex items-baseline gap-3">
           <h2 className="ps-eyebrow">我的项目</h2>
+          <span aria-hidden className="h-px flex-1 bg-line/60" />
           <span className="text-[11px] text-ink-faint tabular-nums">
             {projects === null ? '读取中…' : `共 ${projects.length} 个`}
           </span>
@@ -372,7 +373,7 @@ export default function ProjectsPage() {
             onImport={() => importInputRef.current?.click()}
           />
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="ps-stagger grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((project, index) => (
               <ProjectCard
                 key={project.id}
@@ -534,7 +535,7 @@ function ProjectCard({
           <h3
             className={cn(
               'truncate font-semibold tracking-[-0.01em] text-white drop-shadow-sm',
-              featured ? 'text-[clamp(18px,2.1vw,24px)]' : 'text-[16px]',
+              featured ? 'ps-card-title-serif text-[clamp(18px,2.1vw,24px)]' : 'text-[16px]',
             )}
           >
             {project.name}

@@ -134,7 +134,10 @@ export function polishTitle(
   let title = original
     .replace(/^[《〈「『"“'']+/, '')
     .replace(/[》〉」』"”'']+$/, '')
-    .replace(/[。，、；：！？…—·]+/g, '')
+    // 逗号保留：中文标题里「亮着的店，关着的门」这种并列是靠逗号立住的
+    .replace(/[。、；：！？…—·]+/g, '')
+    .replace(/，{2,}/g, '，')
+    .replace(/^，|，$/g, '')
     .trim();
 
   if (title !== original) {
@@ -173,6 +176,18 @@ export function polishTitle(
     }
   }
 
+  // 0.7.6：道具标签式标题（「蓝牌的车」「副驾驶的玩偶」）就地换掉 ——
+  // 这类标题只把画面里一件东西念了名字，既没时辰也没动作，换到任何照片上都成立。
+  if (isPropLabelTitle(title)) {
+    const derived = hints.story ? deriveSceneTitle(hints.story) : null;
+    if (derived && derived !== title) {
+      notes.push({ field: 'title', from: title, to: derived, reason: '道具标签式标题，改从正文取局面' });
+      title = derived;
+    } else {
+      notes.push({ field: 'title', from: title, to: title, reason: '道具标签式标题（正文里没找到可用的局面句，建议重生成）' });
+    }
+  }
+
   title = title.trim();
   if (title.length === 0) {
     notes.push({ field: 'title', from: original, to: '未命名', reason: '清空后为空' });
@@ -182,8 +197,125 @@ export function polishTitle(
   return { title, notes };
 }
 
-const STOP_CHUNKS = new Set(['一个', '这个', '那个', '这里', '那里', '什么', '很多', '时候', '之后', '然后']);
+/* ------------------- 标题体检：挡住「道具标签」式标题 ------------------- */
 
+/**
+ * 0.7.6 的核心修复。
+ *
+ * 用户给的例子：「一辆车的照片，画面里有蓝牌，标题就成了『蓝牌的车』；
+ * 车里有个玩偶，标题���是『副驾驶的玩偶』」。这类标题的共同点是：
+ * **把画面里的一件道具念了一遍名字**，换到任何一张拍到它的照片上都成立，
+ * 既不告诉你这是什么时候、也不告诉你这帧在干什么。
+ *
+ * 提示词已经改成「先看局面再落笔」，但模型仍会偶尔漏出来，所以这里再加一道机械判定：
+ * 判成道具标签就地从正文里取一句「局面」当标题。
+ */
+
+/** 道具词：出现在标题里、又没有局面词陪同时，判定为「只报了个名字」 */
+const PROP_NOUNS = [
+  '车', '汽车', '轿车', '卡车', '货车', '摩托', '电动车', '自行车', '轮胎', '轮毂',
+  '蓝牌', '黄牌', '绿牌', '车牌', '号牌', '挡风玻璃', '车窗', '天窗', '雨刷', '后视镜',
+  '方向盘', '座椅', '坐垫', '安全带', '挡把', '仪表盘', '后备箱', '副驾驶',
+  '玩偶', '公仔', '挂件', '摆件', '娃娃',
+  '招牌', '牌子', '灯笼', '电线杆', '路灯', '红灯', '路牌', '垃圾桶', '栏杆',
+  '桌子', '椅子', '凳子', '杯子', '碗', '盘子', '瓶子', '罐子', '盒子', '袋子',
+  '花', '草', '树', '树叶', '天空', '云', '猫', '狗', '鸟',
+  '门', '窗', '台阶', '地板', '墙', '砖', '铁皮', '绳子', '衣架', '摊子',
+];
+
+/** 局面词：时辰、天气、光、距离、位置、动作时态、数量 —— 有它就不算「只报名字」 */
+const SCENE_WORDS = /[光晚早夜午点天雨风雪雾晴阴云空影前后来去回走到过还没正刚在半两三一几满剩空静动停挂放坐站靠穿亮暗黑浅深远近上下里外旁边中间内外]/;
+
+/** 判定：这个标题是不是「某件道具的名字」 */
+export function isPropLabelTitle(raw: string): boolean {
+  const t = raw.replace(/[^\u4e00-\u9fa5]/g, '');
+  if (t.length < 2) return false;
+
+  // 形如「X 的 Y」：后半是道具，或前半是道具，且全篇没有局面词
+  const m = t.match(/^(.{1,5})的(.{1,6})$/);
+  if (m) {
+    const [, head, tail] = m;
+    const propInTail = PROP_NOUNS.some((p) => tail.includes(p));
+    const propInHead = PROP_NOUNS.some((p) => head.includes(p));
+    if ((propInTail || propInHead) && !SCENE_WORDS.test(t)) return true;
+    // 「蓝牌的车」这种：前半是道具的局部（蓝牌），后半是道具，两边都没局面
+    if (propInTail && propInHead) return true;
+  }
+
+  // 纯道具名：短、以道具收尾、且完全没有局面词（「方向盘」「玩偶」）
+  if (t.length <= 6 && !SCENE_WORDS.test(t) && PROP_NOUNS.some((p) => t.endsWith(p))) return true;
+
+  // 0.7.6：「路边的电线杆」「桌上一只杯子」——看着有位置词，其实还是给东西点名。
+  // 判据：以道具收尾，且全篇没有一处局面细节（灯/亮/暗/雨/夜/没/还/正/刚…）。
+  const endsWithProp = PROP_NOUNS.some((p) => t.endsWith(p));
+  const hasSceneDetail = /灯|亮|暗|湿|潮|雨|雪|风|雾|夜|早|晚|点|半|没|还|正|刚|空|静|动|冷|热|光/.test(t);
+  if (endsWithProp && !hasSceneDetail) return true;
+
+  return false;
+}
+
+/**
+ * 从正文里取一句「局面」当标题：优先带时态/动作/位置的短句，
+ * 其次带时辰天气的，最后才是任意短句。只取 4–10 字，取不到就返回 null。
+ */
+export function deriveSceneTitle(story: string, avoid: string[] = []): string | null {
+  const clauses = story
+    .split(/[，。；：、？！]/)
+    .map((part) => part.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').trim())
+    .filter((part) => part.length >= 4 && part.length <= 12);
+  if (clauses.length === 0) return null;
+
+  const score = (clause: string): number => {
+    let s = 0;
+    if (SCENE_WORDS.test(clause)) s += 3;
+    if (/没|还|正|刚|要|在|过|了|着/.test(clause)) s += 2;
+    if (/光|晚|早|夜|雨|风|雾|雪|点|半/.test(clause)) s += 2;
+    // 带灯 / 亮 / 暗 / 湿 这类「空气感」的句子最像标题
+    if (/灯|亮|暗|湿|潮|冷|热|空/.test(clause)) s += 1;
+    // 越短越像标题：4–8 字最合适，超过 10 字直接压
+    if (clause.length <= 8) s += 2;
+    else if (clause.length > 10) s -= 3;
+    // 道具越多越不像「局面」：每出现一个道具扣 2 分
+    const propCount = PROP_NOUNS.filter((p) => clause.includes(p)).length;
+    s -= propCount * 2;
+    return s;
+  };
+
+  const ranked = clauses
+    .map((clause) => ({ clause, s: score(clause) }))
+    .sort((a, b) => b.s - a.s);
+
+  // 逐个试，交出去的第一个必须自己能过体检（不能再造出一个「道具标签」）
+  for (const candidate of ranked) {
+    if (candidate.s <= 0) break;
+    // 不能用 trimNounTail：那会把「车灯还亮着」的「着」当尾巴剥掉，读起来就断了
+    let out = candidate.clause.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
+    if (out.length > 10) {
+      const cut = Math.max(out.lastIndexOf('的'));
+      out = cut >= 4 ? out.slice(0, cut) : out.slice(0, 10);
+    }
+    out = out.replace(/^[的之里中在与和]+|[的之里中在与和]+$/g, '').trim();
+    if (out.length < 4 || isPropLabelTitle(out)) continue;
+    if (!SCENE_WORDS.test(out)) continue;
+    // 同批里已经用过的局面句就不再交，避免两页同一个标题
+    if (avoid.some((t) => isNearDuplicate(t, out))) continue;
+    return out;
+  }
+  return null;
+}
+
+/** 单个标题的体检结果（给界面「标题体检」与测试用） */
+export function assessTitle(raw: string): { ok: boolean; reason: string | null } {
+  const t = collapse(raw).replace(/[。，、；：！？…—·"'“”《》「」]/g, '');
+  if (t.length < 4) return { ok: false, reason: '太短（少于 4 字）' };
+  if (t.length > 10) return { ok: false, reason: '太长（超过 10 字）' };
+  if (/^的|的$/.test(t)) return { ok: false, reason: '以「的」开头或收尾' };
+  if (isPropLabelTitle(t)) return { ok: false, reason: '只是道具的名字，没写这帧的局面' };
+  if (!SCENE_WORDS.test(t)) return { ok: false, reason: '通篇没有时辰、天气、距离或动作' };
+  return { ok: true, reason: null };
+}
+
+const STOP_CHUNKS = new Set(['一个', '这个', '那个', '这里', '那里', '什么', '很多', '时候', '之后', '然后']);
 const TAIL_NOISE = /(洒在|落在|停在|挂在|放在|走在|站在|坐在|看着|笑着|走了|来了|很好|不错|很美)+$/;
 /** 名词短语后面粘上的动词/助词尾巴，逐字剥到干净为止 */
 const TAIL_VERB = /[在着过了是很好洒落停挂放走站坐看笑照吹飘擦堆摆]+$/;
@@ -337,10 +469,13 @@ export function polishAnalysis(analysis: PhotoAnalysis, options: PolishOptions =
   const used = options.usedTitles ?? [];
   if (used.some((t) => isNearDuplicate(t, title))) {
     const before = title;
-    // 从正文里找一个 2–4 字的具体物名当后缀，找不到就用序数兜底
+    // 先从正文里再取一句别的局面，实在没有才用序数兜底
+    const altScene = deriveSceneTitle(storyResult.story, [...used, title]);
     const body = analysis.story ?? '';
     const candidate = body.match(/[\u4e00-\u9fa5]{2,4}(?=[，。、]|$)/)?.[0];
-    title = candidate && !used.some((t) => isNearDuplicate(t, candidate)) ? candidate : `${title}·二`;
+    title =
+      altScene ??
+      (candidate && !used.some((t) => isNearDuplicate(t, candidate)) ? candidate : `${title}·二`);
     notes.push({ field: 'title', from: before, to: title, reason: '同批重名' });
   }
 
