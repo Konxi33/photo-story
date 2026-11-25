@@ -2318,3 +2318,29 @@ h2.ps-eyebrow::before {
   font-family: var(--font-display);
   letter-spacing: 0.005em;
 }
+/* ============================== 0.7.7 降噪 ==============================
+   用户反复说「太冗杂、太凌乱」。这一版不动结构，只把画面里多余的描边、
+   阴影、半通透层各降一档：卡片、分割线、浮条都不再抢内容的注意力。 */
+
+/* 卡片描边淡一档：纸面上只留「一层薄边」的概念 */
+.ps-page-shell [class*='border-line/6'],
+.ps-page-shell [class*='border-line/5'] {
+  border-color: color-mix(in srgb, var(--hairline) 62%, transparent);
+}
+
+/* 浮条（工具栏、顶栏）不再同时有描边 + 阴影 + 毛玻璃，只留毛玻璃与一条发丝线 */
+[data-glass-bar] {
+  box-shadow: none;
+}
+
+/* 次要说明文字统一下降一档明度，避免一行行都在抢读 */
+.ps-caption,
+.ps-hint {
+  color: color-mix(in srgb, var(--color-ink-faint) 88%, var(--color-ink-mid));
+}
+
+/* 分节之间的留白统一，卡片不再各写各的 mt */
+.ps-section {
+  display: grid;
+  gap: 1.25rem;
+}

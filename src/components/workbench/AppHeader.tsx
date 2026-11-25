@@ -5,7 +5,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, Download, Settings } from 'lucide-react';
+import { ArrowLeft, Download, PenLine, Settings } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,8 @@ interface AppHeaderProps {
   onBack: () => void;
   onRename: (name: string) => void;
   onOpenSettings: () => void;
+  /** 0.7.7：项目里直接改「怎么写」（标题风格 / 叙事笔法 / 故事长度） */
+  onOpenStyle: () => void;
   onExport: () => void;
 }
 
@@ -23,6 +25,7 @@ export function AppHeader({
   onBack,
   onRename,
   onOpenSettings,
+  onOpenStyle,
   onExport,
 }: AppHeaderProps) {
   const [editing, setEditing] = useState(false);
@@ -82,11 +85,18 @@ export function AppHeader({
           </div>
         )}
 
-        <span className="ml-1 hidden text-[11px] text-ink-faint lg:inline">
-          双击项目名可重命名
-        </span>
-
         <div className="ml-auto flex items-center gap-1.5">
+          {/* 0.7.7：改「怎么写」不必再退回全局设置页 */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-full px-2.5 text-ink-mid"
+            onClick={onOpenStyle}
+            title="写法：标题风格、叙事笔法、故事长度"
+          >
+            <PenLine className="h-4 w-4 sm:mr-1.5" />
+            <span className="hidden sm:inline">写法</span>
+          </Button>
           <Button
             variant="ghost"
             size="sm"

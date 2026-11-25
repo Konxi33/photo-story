@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   ListChecks,
   MoreHorizontal,
+  PenLine,
   RefreshCw,
   Search,
   Sparkles,
@@ -102,6 +103,10 @@ interface BatchToolbarProps {
   onBatchTags?: () => void;
   /** 0.5.0：智能精选（按分数 + 题材分散） */
   onSmartSelect?: (count: number) => void;
+  /** 0.7.7：整批修「道具式标题」（本地规则替换，不花 API） */
+  onFixPropTitles?: () => void;
+  /** 0.7.7：当前有几张标题是「某物 + 的 + 某物」这种道具标签 */
+  propTitleCount?: number;
 }
 
 export function BatchToolbar({
@@ -137,6 +142,8 @@ export function BatchToolbar({
   onOpenFlip,
   onBatchTags,
   onSmartSelect,
+  onFixPropTitles,
+  propTitleCount = 0,
 }: BatchToolbarProps) {
   return (
     <div className="sticky top-[calc(3.5rem+1px)] z-20 -mx-1 mb-4 flex flex-wrap items-center gap-1.5 rounded-xl border border-line/50 bg-paper/80 px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-xl">
@@ -296,6 +303,19 @@ export function BatchToolbar({
                   精选 {n} 张
                 </DropdownMenuItem>
               ))}
+            </>
+          )}
+
+          {onFixPropTitles && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onFixPropTitles()}>
+                <PenLine className="mr-2 h-3.5 w-3.5" />
+                修一遍标题
+                <span className="ml-auto pl-3 text-[10.5px] text-ink-faint">
+                  {propTitleCount > 0 ? `${propTitleCount} 张像道具名` : '本地改，不花钱'}
+                </span>
+              </DropdownMenuItem>
             </>
           )}
 

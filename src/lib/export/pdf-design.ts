@@ -372,7 +372,11 @@ export function renderFigurePage(input: FigureInput): string {
   }
 
   // 页内标题与图号跟照片（或正文栏）共用同一条左边线，页面只允许一条竖线
-  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><span class="pg-no">${figureNumber(input.index, s)}</span><h2 class="pg-title">${escapeHtml(normalizeText(input.title))}</h2></div>`);
+  // 0.7.7：标题按字数让字号——长标题不该硬挤成两行小字，也不该把图片挤矮
+  const titleChars = [...normalizeText(input.title)].length;
+  const titleScale = titleChars > 20 ? 0.72 : titleChars > 14 ? 0.82 : titleChars > 10 ? 0.92 : 1;
+  const titlePt = (s.pageTitle.sizePt * titleScale).toFixed(1);
+  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><span class="pg-no">${figureNumber(input.index, s)}</span><h2 class="pg-title" style="font-size:${titlePt}pt">${escapeHtml(normalizeText(input.title))}</h2></div>`);
 
   if (input.url) {
     const matte = s.photo.matteMm > 0 ? ` padding:${s.photo.matteMm}mm;` : '';

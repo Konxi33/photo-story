@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { BatchToolbar, type PhotoFilter, type PhotoView } from '@/components/workbench/BatchToolbar';
 import { BatchTagsDialog } from '@/components/workbench/BatchTagsDialog';
 import { ExportDialog } from '@/components/workbench/ExportDialog';
+import { GenStyleSheet } from '@/components/workbench/GenStyleSheet';
 import { PhotoEditorSheet } from '@/components/workbench/PhotoEditorSheet';
 import { PhotoGrid } from '@/components/workbench/PhotoGrid';
 import { SettingsDialog } from '@/components/workbench/SettingsDialog';
@@ -38,6 +39,7 @@ import {
   STORAGE_KEY_APP_SETTINGS,
 } from '@/config/app';
 import { analyzePhotoLocally, runBatchAnalysis } from '@/lib/ai';
+import { deriveSceneTitle, isPropLabelTitle } from '@/lib/ai/polish';
 import { pageHint } from '@/lib/export/blocks';
 import { scorePhoto } from '@/lib/score/dispatch';
 import { AssetRepository, KvRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
@@ -78,6 +80,8 @@ export default function WorkbenchPage() {
   const [previews, setPreviews] = useState<Record<string, string>>({});
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 0.7.7：「写法」面板——标题风格/叙事笔法/故事长度，项目里直接改
+  const [styleOpen, setStyleOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
   const [batchTagsOpen, setBatchTagsOpen] = useState(false);
@@ -329,6 +333,9 @@ export default function WorkbenchPage() {
     const selected = photos.filter((p) => p.selected).length;
     return { total, success, failed, processing, pending, selected };
   }, [photos]);
+
+  // 0.7.7：生成完成度（0–100）。100 时界面不再画进度条，见体征条里的注释。
+  const doneRatio = Math.round((stats.success / Math.max(1, stats.total)) * 100);
 
   const handleToggleSelect = async (id: string): Promise<void> => {
     const target = photos.find((p) => p.id === id);
@@ -709,6 +716,47 @@ export default function WorkbenchPage() {
   };
 
   /**
+   * 0.7.7：整批修「道具标题」。
+   * 老版本模型爱把画面里一件东西念成标题（「副驾那只白摆件」「一圈白杆」），
+   * 这里用本地规则照出来，再从各自的故事里取一句有局面的短句替换。
+   * 全程不调模型、不花钱，也不动故事与评分。
+   */
+  const handleFixPropTitles = async (): Promise<void> => {
+    const targets = photos.filter((p) => p.analysis?.title && isPropLabelTitle(p.analysis.title));
+    if (targets.length === 0) {
+      toast('没有发现道具式标题', { description: '现在的标题都带着局面，不用改。' });
+      return;
+    }
+
+    const used = photos.map((p) => p.analysis?.title).filter((t): t is string => Boolean(t));
+    let changed = 0;
+    const patches = new Map<string, Photo>();
+
+    for (const photo of targets) {
+      const next = deriveSceneTitle(photo.analysis?.story ?? '', used);
+      if (!next) continue;
+      const updated = await PhotoRepository.update(photo.id, {
+        analysis: { ...photo.analysis!, title: next },
+        isEdited: true,
+      }).catch(() => null);
+      if (!updated) continue;
+      used.push(next);
+      patches.set(photo.id, updated);
+      changed += 1;
+    }
+
+    if (changed > 0) {
+      setPhotos((prev) => prev.map((p) => patches.get(p.id) ?? p));
+    }
+    toast(`改了 ${changed} 个标题`, {
+      description:
+        changed === targets.length
+          ? '都从各自的故事里重新取了一句，没调模型、没花钱。'
+          : `还有 ${targets.length - changed} 个故事里找不到合适的句子，建议单独重写。`,
+    });
+  };
+
+  /**
    * 0.3.5：一键重生成（换模型后尤其有用）。
    * 对所有已成功的照片重跑整篇识别，文字与评分一起刷新。
    */
@@ -925,14 +973,14 @@ export default function WorkbenchPage() {
         onBack={handleBack}
         onRename={(name) => void handleRename(name)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenStyle={() => setStyleOpen(true)}
         onExport={() => setPreflightOpen(true)}
       />
 
       {/* 0.7.3：项目体征条——进项目第一眼就知道这册书走到哪一步了（原来要往下看才知道） */}
       {photos.length > 0 && (
         <div className="border-b border-line/60 bg-surface/55">
-          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2 md:px-6">
-            {[
+          <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-5 gap-y-2 px-5 py-2 md:px-6">            {[
               { label: '照片', value: photos.length, copper: false },
               { label: '已生成', value: photos.filter((p) => p.status === 'success').length, copper: false },
               {
@@ -950,24 +998,19 @@ export default function WorkbenchPage() {
               </span>
             ))}
 
-            <div className="ml-auto flex min-w-[148px] flex-1 items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-line/50">
-                <div
-                  className="h-full rounded-full bg-ink/55 transition-[width] duration-500 ease-out"
-                  style={{
-                    width: `${Math.round(
-                      (photos.filter((p) => p.status === 'success').length / Math.max(1, photos.length)) * 100,
-                    )}%`,
-                  }}
-                />
+            {/* 0.7.7：全部生成完就不再画满宽进度条——100% 那根深色横杠一点信息也没有，
+                只占地方。只有还没跑完时才出现。 */}
+            {doneRatio < 100 && (
+              <div className="ml-auto flex min-w-[148px] flex-1 items-center gap-2">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-line/50">
+                  <div
+                    className="h-full rounded-full bg-ink/55 transition-[width] duration-500 ease-out"
+                    style={{ width: `${doneRatio}%` }}
+                  />
+                </div>
+                <span className="text-[10.5px] tabular-nums text-ink-faint">{doneRatio}%</span>
               </div>
-              <span className="text-[10.5px] tabular-nums text-ink-faint">
-                {Math.round(
-                  (photos.filter((p) => p.status === 'success').length / Math.max(1, photos.length)) * 100,
-                )}
-                %
-              </span>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -1039,6 +1082,10 @@ export default function WorkbenchPage() {
           onKeywordChange={setKeyword}
           onSelectByScore={(min) => void handleSelectByScore(min)}
           onSmartSelect={(count) => void handleSmartSelect(count)}
+          onFixPropTitles={() => void handleFixPropTitles()}
+          propTitleCount={
+            photos.filter((p) => p.analysis?.title && isPropLabelTitle(p.analysis.title)).length
+          }
             onOpenBook={() => router.push(ROUTES.book)}
             onOpenFlip={() => router.push(ROUTES.flip)}
             onBatchTags={() => setBatchTagsOpen(true)}
@@ -1076,6 +1123,17 @@ export default function WorkbenchPage() {
           setSettingsOpen(open);
           if (!open) void loadGenSettings();
         }}
+      />
+
+      <GenStyleSheet
+        open={styleOpen}
+        onOpenChange={setStyleOpen}
+        value={{
+          titleStyle: genSettings.titleStyle,
+          narrativeStyle: genSettings.narrativeStyle,
+          storyLength: genSettings.storyLength,
+        }}
+        onSaved={(next) => setGenSettings((prev) => ({ ...prev, ...next }))}
       />
 
       {/* 0.4.2：导出前体检 */}

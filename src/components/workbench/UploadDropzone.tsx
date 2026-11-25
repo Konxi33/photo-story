@@ -78,12 +78,15 @@ export function UploadDropzone({ projectId, onUploaded, compact = false }: Uploa
       }}
       className={cn(
         'group relative flex items-center overflow-hidden border border-dashed transition-[padding,background-color,border-color,transform] duration-[320ms] ease-[var(--ease-out)]',
-        expanded ? 'rounded-xl gap-3.5 px-4 py-3' : 'rounded-lg gap-2 px-2.5 py-[5px]',
+        expanded ? 'rounded-xl gap-3.5 px-4 py-3 border-dashed' : 'rounded-lg gap-2 px-2.5 py-[5px]',
+        // 0.7.7：已有照片时（compact）不再画一整圈虚线——一条扁横杠横在照片上方太吵。
+        // 保留整条的可拖放区域，只是平时把边框藏起来，拖东西进来时才亮成虚线。
+        !expanded && !dragging && 'border-transparent',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
         busy && 'cursor-progress',
         dragging
           ? 'scale-[1.005] border-ink/40 bg-ink/[0.045]'
-          : 'border-line/70 bg-surface-2/40 hover:border-ink/25 hover:bg-surface',
+          : 'hover:border-ink/20 hover:bg-surface',
       )}
     >
       <span

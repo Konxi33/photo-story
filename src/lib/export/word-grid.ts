@@ -669,6 +669,13 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
     if (id === 'title') {
       const text = (analysis.title || photo.fileName || '').trim();
       if (!text) return [];
+      // 0.7.7：长标题按字数让字号，和 PDF 同一套口径，避免 16pt 硬挤成两行
+      const chars = [...text].length;
+      const scale = chars > 20 ? 0.72 : chars > 14 ? 0.82 : chars > 10 ? 0.92 : 1;
+      const titleSpec =
+        scale === 1
+          ? style.pageTitle
+          : { ...style.pageTitle, sizePt: style.pageTitle.sizePt * scale, linePt: style.pageTitle.linePt * scale };
       return [
         new Paragraph({
           alignment: AlignmentType.LEFT,
@@ -677,10 +684,10 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
           spacing: {
             before: 0,
             after: mmPt(4),
-            line: Math.round(style.pageTitle.linePt * 20),
+            line: Math.round(titleSpec.linePt * 20),
             lineRule: LineRuleType.EXACT,
           },
-          children: [run(style.pageTitle, text, headFont)],
+          children: [run(titleSpec, text, headFont)],
         }),
       ];
     }
