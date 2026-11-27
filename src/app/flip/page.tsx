@@ -5,7 +5,15 @@
 // 让用户在软件里就看见「印出来是什么样」，也能判断图够不够大、章分得对不对。
 'use client';
 
-import { ChevronLeft, ChevronRight, Images, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Images,
+  Layers,
+  Loader2,
+  Maximize2,
+  Minimize2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -18,6 +26,7 @@ import { ROUTES } from '@/config/app';
 import { cleanChapters, readBook, autoChapters, type BookChapter } from '@/lib/book/store';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import { formatExifLine } from '@/lib/image/exif';
+import { CHAPTER_OPENER_MIN, padToMultiple } from '@/lib/book/signature';
 import { cn } from '@/lib/utils';
 import type { Photo, ProjectSummary } from '@/types/domain';
 
@@ -26,8 +35,26 @@ const dateText = (ts: number): string => {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`;
 };
 
-/** 章节 ≥4 张才单独给一页章扉，小章节用紧凑章头 —— 与 Word 导出的规则保持一致 */
-const CHAPTER_OPENER_MIN = 4;
+/** 补白页开关键：印张按 4 页算，这是「按印刷厂的样子看」的偏好，记一次就一直开着 */
+const PAD_KEY = 'ps:flip:pad';
+
+const readPad = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(PAD_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const writePad = (on: boolean): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PAD_KEY, on ? '1' : '0');
+  } catch {
+    /* 写不进去就只在本次生效 */
+  }
+};
 
 /** 上次翻到第几页，按项目存在本地（换项目各自独立） */
 const cursorKey = (projectId: string): string => `ps:flip:${projectId}`;
@@ -67,6 +94,8 @@ export default function FlipPage(): React.JSX.Element {
   const [presenting, setPresenting] = useState(false);
   /** 放映时可以自动往下翻：摆着给客户看，人不用守在键盘前 */
   const [autoPlay, setAutoPlay] = useState(false);
+  /** 0.8.1：末尾补白页到 4 的倍数，看的是「印刷厂装订出来」的样子 */
+  const [padBlank, setPadBlank] = useState(false);
   const presentRef = useRef<HTMLDivElement>(null);
   /** 上次看到第几页：按项目存在本地，回来能从原处接着翻 */
   const restoreRef = useRef<number | null>(null);
@@ -207,7 +236,20 @@ export default function FlipPage(): React.JSX.Element {
     return out;
   }, [byId, chapters, project, urls]);
 
-  const totalPages = Math.max(1, pages.length);
+  // 打开过一次就记住；读 localStorage 放在挂载后，别在首帧读（水合会不一致）
+  useEffect(() => {
+    setPadBlank(readPad());
+  }, []);
+
+  // 实际翻的页序列：开了补白页就接几页空白，凑满一叠印张
+  const sheetPages = useMemo<PageNode[]>(() => {
+    if (!padBlank || pages.length === 0) return pages;
+    const pad = padToMultiple(pages.length);
+    if (pad === 0) return pages;
+    return [...pages, ...Array.from({ length: pad }, (): PageNode => ({ kind: 'blank' }))];
+  }, [pages, padBlank]);
+
+  const totalPages = Math.max(1, sheetPages.length);
   const step = view === 'spread' ? 2 : 1;
   const go = useCallback(
     (delta: number) => {
@@ -232,6 +274,11 @@ export default function FlipPage(): React.JSX.Element {
     restoreRef.current = null;
     setCursor(Math.min(want, pages.length - 1));
   }, [pages.length]);
+
+  // 关掉补白页后，游标可能停在已经不存在的那几页上
+  useEffect(() => {
+    setCursor((prev) => (prev > totalPages - 1 ? totalPages - 1 : prev));
+  }, [totalPages]);
 
   // 当前位置随时写回本地：下次进来从这一页接着看
   useEffect(() => {
@@ -311,13 +358,13 @@ export default function FlipPage(): React.JSX.Element {
   const visible =
     view === 'spread'
       ? [
-          { node: pages[cursor], number: cursor + 1 },
-          { node: pages[cursor + 1], number: cursor + 2 },
+          { node: sheetPages[cursor], number: cursor + 1 },
+          { node: sheetPages[cursor + 1], number: cursor + 2 },
         ]
-      : [{ node: pages[cursor], number: cursor + 1 }];
+      : [{ node: sheetPages[cursor], number: cursor + 1 }];
 
-  // 印刷装订通常按 4 的倍数成帖；这里只做提示，不偷偷加页
-  const pad4 = (4 - (pages.length % 4)) % 4;
+  // 印刷装订通常按 4 的倍数成帖；关着时只提示差几页，开了就真补上空白页
+  const pad4 = padToMultiple(sheetPages.length);
 
   return (
     <AppShell>
@@ -372,10 +419,33 @@ export default function FlipPage(): React.JSX.Element {
                   ? `第 ${cursor + 1}${cursor + 1 < totalPages ? `–${Math.min(cursor + 2, totalPages)}` : ''} 页 · 共 ${totalPages} 页`
                   : `第 ${cursor + 1} / ${totalPages} 页`}
                 {pad4 > 0 ? (
-                  <span className="text-ink-faint">（按装订成帖取 4 的倍数，还差 {pad4} 页）</span>
-                ) : null}
+                  <span className="text-ink-faint">
+                    （按装订成帖取 4 的倍数，还差 {pad4} 页）
+                  </span>
+                ) : (
+                  <span className="text-ink-faint">（页数正好是 4 的倍数，装订不空帖）</span>
+                )}
               </span>
               <div className="flex items-center gap-2">
+                <Button
+                  aria-pressed={padBlank}
+                  title={
+                    padBlank
+                      ? '末尾的空白页是补出来的印张，关掉只看真实内容'
+                      : '末尾补 1–3 页空白，凑满一叠印张（看印刷出来是什么样）'
+                  }
+                  onClick={() => {
+                    setPadBlank((prev) => {
+                      writePad(!prev);
+                      return !prev;
+                    });
+                  }}
+                  size="sm"
+                  variant={padBlank ? 'secondary' : 'ghost'}
+                >
+                  <Layers className="mr-1.5 size-3.5" />
+                  {padBlank ? '不补白页' : '补白页'}
+                </Button>
                 <Segmented
                   ariaLabel="预览方式"
                   value={view}

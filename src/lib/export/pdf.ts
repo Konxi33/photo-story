@@ -17,6 +17,7 @@
 //   两条路的规划都来自 src/lib/export/layout.ts 的 planLayoutPage，不会各算一套。
 
 import { AssetRepository } from '@/lib/db';
+import { padForBook } from '@/lib/book/signature';
 import { formatCamera, formatExifLine } from '@/lib/image/exif';
 import { formatDate } from '@/lib/utils';
 import type { ExportSettings, Photo, Project, Technique } from '@/types/domain';
@@ -459,6 +460,22 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
        </section>`
     : '';
 
+  // 0.8.1：印张补页 —— 末尾补 1–3 页空白，把页数凑成 4 的倍数。
+  // PDF 没有技术附录（附录只在 Word 里印），所以 hasAppendix 传 false；
+  // 页数按预览那套规则估，PDF 里小章节会和图压在同页，估计值最多差一页，不影响装订。
+  const padCount = settings.padSignature
+    ? padForBook(params.chapters ?? [], {
+        flatPhotoCount: photos.length,
+        hasCover: settings.includeCover === true,
+        hasOverview: settings.includeOverview !== false,
+        hasAppendix: false,
+      })
+    : 0;
+  const padPages = Array.from(
+    { length: padCount },
+    () => '<section class="page blank" style="break-before:page;min-height:1mm"></section>',
+  ).join('\n');
+
   // 0.6.4：封面改成「一张照片 + 下方标题块」的画册排法。
   // 原来只有三行居中文字，白纸上孤零零一行字，打开就像草稿。
   const coverPhoto = photos.find((p) => p.id === project.coverPhotoId) ?? photos[0];
@@ -663,6 +680,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
 ${settings.includeCover ? cover : ''}
 ${overview}
 ${bodyParts.join('\n')}
+${padPages}
 </body></html>`;
 }
 

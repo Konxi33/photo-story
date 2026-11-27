@@ -215,6 +215,11 @@ export interface ExportSettings {
    * 打印出来像图表报告；关掉后每页一张大图，才像摄影集。
    */
   includeScoreDetail: boolean;
+  /**
+   * 0.8.1：末尾补 1–3 页空白，把整本书凑成 4 的倍数。
+   * 印刷厂一张纸正反印 4 面，页数不是倍数时最后一叠会空出半张。
+   */
+  padSignature?: boolean;
   /** 0.3.1：相框与水印 */
   frame: FrameStyle;
   watermark: boolean;

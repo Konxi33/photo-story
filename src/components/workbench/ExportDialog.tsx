@@ -56,6 +56,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { ProjectRepository } from '@/lib/db';
 import { readBook } from '@/lib/book/store';
+import { padForBook } from '@/lib/book/signature';
 import { PAGE_STYLES } from '@/lib/export/typography';
 import { StylePreview } from '@/components/workbench/style-preview';
 import { clearImageCache, exportToDocx, exportToPdf, exportToPptx } from '@/lib/export';
@@ -145,6 +146,8 @@ export function ExportDialog({
   // 0.5.5：图注写什么 —— 摄影集默认只写编号 + 标题，参数进书末技术附录
   const [captionStyle, setCaptionStyle] = useState<'title' | 'param' | 'both'>('title');
   const [includeScoreDetail, setIncludeScoreDetail] = useState(false);
+  /** 0.8.1：末尾补白页，把页数凑成 4 的倍数（印刷厂按印张装订） */
+  const [padSignature, setPadSignature] = useState(false);
 
   // 0.6.3：整本书的「字」与「纸」——字体、纸色、卷首语、后记
   const [bodyFont, setBodyFont] = useState<BookBodyFont>('song');
@@ -263,6 +266,7 @@ export function ExportDialog({
     setPreface(s.preface ?? '');
     setAfterword(s.afterword ?? '');
     setIncludeScoreDetail(s.includeScoreDetail === true);
+    setPadSignature(s.padSignature === true);
     setBlocks(resolveBlocks(s));
     setTemplateId(s.templateId ?? '');
     const grid = s.grid && Array.isArray(s.grid.items) && s.grid.items.length > 0 ? s.grid : null;
@@ -349,6 +353,7 @@ export function ExportDialog({
         captionUnderImage,
         captionStyle,
         includeScoreDetail,
+        padSignature,
         blocks,
         templateId,
         // grid 始终留着（排版台的位置不能因为这次关掉开关就丢），
@@ -600,6 +605,25 @@ export function ExportDialog({
 
   const unusedBlocks = BLOCKS.filter((meta) => !blocks.includes(meta.id));
 
+  // 提示「会补几页」：和导出时用的是同一个函数，不会两处算得不一样
+  const padPagesForExport = useMemo(
+    () =>
+      padForBook(
+        chapters.map((chapter) => ({
+          title: chapter.title,
+          note: chapter.note,
+          photoIds: chapter.photoIds,
+        })),
+        {
+          flatPhotoCount: selectedPhotos.length,
+          hasCover: includeCover,
+          hasOverview: includeOverview,
+          hasAppendix: true,
+        },
+      ),
+    [chapters, selectedPhotos.length, includeCover, includeOverview],
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
@@ -729,6 +753,19 @@ export function ExportDialog({
             <SettingRow label="每张另起一页">
               <Switch aria-label="每张另起一页" checked={pageBreakPerPhoto} onCheckedChange={setPageBreakPerPhoto} />
             </SettingRow>
+            {/* 0.8.1：印刷厂一张纸正反四面，页数凑成 4 的倍数装订出来才不空帖 */}
+            <SettingRow label="末尾补白页">
+              <Switch
+                aria-label="末尾补白页凑成印张"
+                checked={padSignature}
+                onCheckedChange={setPadSignature}
+              />
+            </SettingRow>
+            {padSignature ? (
+              <p className="-mt-1 text-[10.5px] leading-relaxed text-ink-faint">
+                会补 {padPagesForExport} 页空白，把整本凑成 4 的倍数。自己打印、不装订的话可以关掉。
+              </p>
+            ) : null}
 
             {/* 页面拼装：拖出来的顺序就是印出来的顺序 */}
             <div className="rounded-[12px] border border-line/60 bg-surface/40 p-3">

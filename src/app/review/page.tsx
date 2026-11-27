@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Gavel, Loader2, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { FileText, Gavel, Loader2, Play, RotateCcw, Square, Table2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AppShell } from '@/components/app-shell';
@@ -26,6 +26,7 @@ import { ROUTES } from '@/config/app';
 import { JUDGE_PERSONAS, type JudgeId } from '@/config/scorePrompt';
 import { judgePhotoLocally } from '@/lib/ai/client';
 import { AssetRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
+import { buildReviewCsv, buildReviewMarkdown, buildReviewRows, reviewFileStem } from '@/lib/review/export';
 import {
   averageScore,
   clearBoard,
@@ -161,6 +162,46 @@ export default function ReviewPage() {
     const maxSpread = spreads.length ? Math.max(...spreads) : null;
     return { count: reviews.length, avg, maxSpread };
   }, [board, scoped]);
+
+  /** 0.8.1：把三位评委的结论导出成表格 / 阅读稿，纯本地生成 */
+  const handleExport = useCallback(
+    (format: 'csv' | 'md'): void => {
+      const reviews = board?.reviews ?? [];
+      if (reviews.length === 0) {
+        toast.error('还没有评审结果可以导出');
+        return;
+      }
+      const exportRows = buildReviewRows(
+        board,
+        photos.map((photo, index) => ({
+          id: photo.id,
+          fileName: photo.fileName,
+          title: photo.analysis?.title,
+          number: index + 1,
+        })),
+      );
+      const projectName =
+        (projects ?? []).find((item) => item.id === projectId)?.name?.trim() || '照片故事';
+      const text =
+        format === 'csv'
+          ? `\ufeff${buildReviewCsv(exportRows)}`
+          : buildReviewMarkdown(exportRows, projectName);
+      const blob = new Blob([text], {
+        type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/markdown;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${reviewFileStem(projectName)}.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(
+        format === 'csv' ? `已导出 ${exportRows.length} 张的评审表` : '已导出评审阅读稿',
+        { description: format === 'csv' ? '按「分歧度」排序就能找到三个人意见最不一致的那几张' : undefined },
+      );
+    },
+    [board, photos, projectId, projects],
+  );
 
   /** 列表按分歧或分数排序，未评的排最后 */
   const rows = useMemo(() => {
@@ -354,9 +395,28 @@ export default function ReviewPage() {
                   </Button>
                 )}
                 {(board?.reviews.length ?? 0) > 0 && !running && (
-                  <Button variant="ghost" size="sm" onClick={reset} title="清空这个项目的评审结果">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleExport('csv')}
+                      title="导出评审表（CSV，可在 Excel 里按分歧度排序）"
+                    >
+                      <Table2 className="mr-1.5 h-3.5 w-3.5" />
+                      导出表格
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport('md')}
+                      title="导出阅读稿（Markdown，评语按评委分行）"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={reset} title="清空这个项目的评审结果">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

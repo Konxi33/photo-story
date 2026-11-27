@@ -151,6 +151,20 @@ export const TEMPLATES: ExportTemplate[] = [
     blocks: BLOCKS.map((block) => block.id),
     patch: { includeScoreDetail: true, captionStyle: 'both', pageBreakPerPhoto: true },
   },
+  {
+    id: 'bleed',
+    name: '整页大图',
+    hint: '一页只放一张图，顶到版心四边；编号与标题收进书末附录',
+    // 0.8.1：只留 image —— 没有文字块，图片就能吃满整个版心，
+    // 打印或装订成纯图册时最合适；参数与标题在附录里照样查得到。
+    blocks: ['image'],
+    patch: {
+      includeScoreDetail: false,
+      captionStyle: 'title',
+      pageBreakPerPhoto: true,
+      padSignature: true,
+    },
+  },
 ];
 
 export function getTemplate(id: string | undefined): ExportTemplate | undefined {

@@ -7,6 +7,7 @@ import {
   Document,
   Footer,
   Header,
+  PageBreak,
   PageNumber,
   Paragraph,
   TextRun,
@@ -25,6 +26,8 @@ import {
   toDocxColor,
 } from '@/config/wordLayout';
 import type { ExportSettings, Photo, Project } from '@/types/domain';
+
+import { padForBook } from '@/lib/book/signature';
 
 import { buildAppendix } from './appendix';
 import { normalizeExportSettings } from './bookStyle';
@@ -261,7 +264,9 @@ export function buildDocument(params: BuildDocumentParams): Document {
 
   // 0.5.5：图注不再挂一串参数，参数统一收到书末技术附录（真实摄影书的做法）。
   // captionStyle === 'both' 时参数已经在图注里，就不再重复印一遍。
-  if (settings.includeTechnique !== false && (settings.captionStyle ?? 'title') !== 'both' && ordered.length > 0) {
+  const withAppendix =
+    settings.includeTechnique !== false && (settings.captionStyle ?? 'title') !== 'both' && ordered.length > 0;
+  if (withAppendix) {
     children.push(
       ...buildAppendix({
         photos: ordered,
@@ -269,6 +274,20 @@ export function buildDocument(params: BuildDocumentParams): Document {
         contentHeightCm: exportContentHeightCm(settings),
       }),
     );
+  }
+
+  // 0.8.1：印张补页 —— 页数凑成 4 的倍数，装订出来最后一叠不空半张。
+  // 页数是按预览那套规则估的（Word 的真实分页只有排完才知道），差一页也不影响阅读。
+  if (settings.padSignature) {
+    const pad = padForBook(chapters ?? [], {
+      flatPhotoCount: ordered.length,
+      hasCover: settings.includeCover === true,
+      hasOverview: settings.includeOverview !== false,
+      hasAppendix: withAppendix,
+    });
+    for (let i = 0; i < pad; i += 1) {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
   }
 
   return new Document({

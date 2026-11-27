@@ -12,6 +12,8 @@ export type PageNode =
   | { kind: 'chapter'; index: number; title: string; note: string }
   /** 0.8.0：呼吸页——空标题 + 有题记的章节，导出里是一整页留白，预览也要有 */
   | { kind: 'breath'; note: string }
+  /** 0.8.1：印张补出来的留白页 —— 导出时是真空白，预览里标一行小字免得以为丢了页 */
+  | { kind: 'blank' }
   | {
       kind: 'photo';
       index: number;
@@ -105,6 +107,12 @@ export function BookPage({
               </figure>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {node.kind === 'blank' ? (
+        <div className="flex h-full items-center justify-center">
+          <span className="text-[9px] tracking-[0.2em] text-[#c2bdb0]">补白页</span>
         </div>
       ) : null}
 

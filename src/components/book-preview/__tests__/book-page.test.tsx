@@ -27,8 +27,16 @@ describe('BookPage', () => {
     expect(html).toContain('第 4 页');
   });
 
-  it('章扉有章号与题记', () => {
-    const html = render({ kind: 'chapter', index: 2, title: '雨停之前', note: '出门那天下着雨' }, 3);
+  it('补白页只有一行小字，页面上没有别的内容', () => {
+    const html = render({ kind: 'blank' }, 13);
+    expect(html).toContain('补白页');
+    expect(html).toContain('第 12 页');
+    // 不能把标题、图注这些板块漏画到补白页上
+    expect(html).not.toContain('图 1');
+    expect(html).not.toContain('<h2');
+  });
+
+  it('章扉有章号与题记', () => {    const html = render({ kind: 'chapter', index: 2, title: '雨停之前', note: '出门那天下着雨' }, 3);
     expect(html).toContain('第 02 章');
     expect(html).toContain('雨停之前');
     expect(html).toContain('出门那天下着雨');
