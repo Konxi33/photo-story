@@ -151,7 +151,10 @@ function normalizeBullets(input: string[] | undefined, warnings: string[], label
   return out;
 }
 
-export function normalizePhotoAnalysis(input: PhotoAnalysis): {
+export function normalizePhotoAnalysis(
+  input: PhotoAnalysis,
+  options: { usedTitles?: string[] } = {},
+): {
   data: PhotoAnalysis;
   warnings: string[];
 } {
@@ -232,7 +235,10 @@ export function normalizePhotoAnalysis(input: PhotoAnalysis): {
   // 0.7.5：提示词只能「要求」模型，拦不住偶尔漏出来的模板腔。
   // 这里做一次确定性的收尾（去引号句读、剔空泛词、换软词、删套话、统一标点），
   // 只删改不该出现的东西，不改写内容、不新增信息。见 src/lib/ai/polish.ts。
-  const polished = polishAnalysis(data);
+  // 0.8.0：把「同批已经用掉的标题」传进收尾流程 —— 0.7.5 就写好了去重逻辑（polish.ts 的
+  // isNearDuplicate），但一直没把 usedTitles 传进来，等于空转。批量识别同一批照片时，
+  // 模型偶尔会给出「空椅」「一把空椅」这种近义改写，这里才真正换得掉。
+  const polished = polishAnalysis(data, { usedTitles: options.usedTitles });
   for (const note of polished.notes) {
     warnings.push(`文案收尾：${note.field} 已修正（${note.reason}）`);
   }
@@ -271,7 +277,10 @@ function extractJsonText(raw: string): string | null {
   return text.slice(start, end + 1);
 }
 
-export function parsePhotoAnalysis(raw: string): ParsePhotoAnalysisResult {
+export function parsePhotoAnalysis(
+  raw: string,
+  options: { usedTitles?: string[] } = {},
+): ParsePhotoAnalysisResult {
   const jsonText = extractJsonText(raw);
   if (!jsonText) {
     return {
@@ -306,7 +315,7 @@ export function parsePhotoAnalysis(raw: string): ParsePhotoAnalysisResult {
     };
   }
 
-  const normalized = normalizePhotoAnalysis(result.data as PhotoAnalysis);
+  const normalized = normalizePhotoAnalysis(result.data as PhotoAnalysis, options);
   return { ok: true, data: normalized.data, warnings: normalized.warnings };
 }
 

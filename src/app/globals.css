@@ -218,6 +218,13 @@
     display: none !important;
   }
 
+  /* 0.8.0：图标统一。lucide 默认 2px 描边在 14 / 16px 尺寸上偏重，
+     和正文 1.72 的行高放在一起显得吵；全站统一到 1.75。
+     （页面里少数装饰图形是手写 svg 并自己给了 strokeWidth，不受这条影响。） */
+  svg.lucide {
+    stroke-width: 1.75;
+  }
+
   [data-theme='dark'] {
     color-scheme: dark;
   }

@@ -167,8 +167,10 @@ export function polishTitle(
     title = next;
   }
 
-  // 剔词剔空了，或只剩一两个字：从正文里捞一个具体物名当标题
-  if (title.length < 4 && hints.story) {
+  // 剔词剔空了，或只剩一两个字：从正文里捞一个具体物名当标题。
+  // 0.8.0：只有「确实动过这个标题」才补位 —— 原来无条件在 <4 字时补，
+  // 把「空椅」这种本来就成立的短标题也换成了正文里的半截从句。
+  if (title.length < 4 && hints.story && (touched || title !== original)) {
     const rescued = rescueTitleFromStory(hints.story);
     if (rescued) {
       notes.push({ field: 'title', from: original, to: rescued, reason: '剔词后不成词，改从正文取物名' });
@@ -296,6 +298,7 @@ export function deriveSceneTitle(story: string, avoid: string[] = []): string | 
     }
     out = out.replace(/^[的之里中在与和]+|[的之里中在与和]+$/g, '').trim();
     if (out.length < 4 || isPropLabelTitle(out)) continue;
+    if (!looksLikeTitleChunk(out)) continue;
     if (!SCENE_WORDS.test(out)) continue;
     // 同批里已经用过的局面句就不再交，避免两页同一个标题
     if (avoid.some((t) => isNearDuplicate(t, out))) continue;
@@ -319,6 +322,24 @@ const STOP_CHUNKS = new Set(['一个', '这个', '那个', '这里', '那里', '
 const TAIL_NOISE = /(洒在|落在|停在|挂在|放在|走在|站在|坐在|看着|笑着|走了|来了|很好|不错|很美)+$/;
 /** 名词短语后面粘上的动词/助词尾巴，逐字剥到干净为止 */
 const TAIL_VERB = /[在着过了是很好洒落停挂放走站坐看笑照吹飘擦堆摆]+$/;
+
+/**
+ * 0.8.0：从正文里捞标题时的成句体检。
+ *
+ * 之前只筛「4–10 字、不含道具」，捞出来的常是半截从句 —— 实测出现过
+ * 「压着它的还是那块」这种把「压着它的还是那块石头」拦腰截断的结果，
+ * 当标题比原来的好标题还糟。这里把代词、连接词与「的/了/着/是」收尾一律挡掉。
+ */
+const CLAUSE_BAN = /(它|他|她|我|你|这|那|其|还是|就是|只是|也是|都是|但是|因为|所以|不过|而且)/;
+const CLAUSE_TAIL_BAN = /[的了着是在和与把被还也都就才又很更最]$/;
+
+function looksLikeTitleChunk(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 2 || t.length > 10) return false;
+  if (CLAUSE_BAN.test(t)) return false;
+  if (CLAUSE_TAIL_BAN.test(t)) return false;
+  return true;
+}
 
 function trimNounTail(text: string): string {
   let out = text.replace(TAIL_NOISE, '');
@@ -345,10 +366,16 @@ function rescueTitleFromStory(story: string): string | null {
   for (const clause of clauses) {
     const phrase = clause.match(/[\u4e00-\u9fa5]{2,4}的[\u4e00-\u9fa5]{2,4}/)?.[0];
     const clean = phrase ? trimNounTail(phrase) : '';
-    if (clean.length >= 4 && clean.length <= 10) return clean;
+    if (clean.length >= 4 && clean.length <= 10 && looksLikeTitleChunk(clean)) return clean;
 
     const trimmed = trimNounTail(clause);
-    if (trimmed.length >= 4 && trimmed.length <= 10 && !STOP_CHUNKS.has(trimmed) && !fallback) {
+    if (
+      trimmed.length >= 4 &&
+      trimmed.length <= 10 &&
+      !STOP_CHUNKS.has(trimmed) &&
+      looksLikeTitleChunk(trimmed) &&
+      !fallback
+    ) {
       fallback = trimmed;
     }
   }
@@ -436,15 +463,22 @@ export interface PolishOptions {
   usedTitles?: string[];
 }
 
-/** 判断两个标题是否「太像」：完全相等，或去掉标点后相等，或互为子串 */
+/**
+ * 判断两个标题是否「太像」：完全相等、去掉标点后相等，或是一长一短的包含关系。
+ *
+ * 0.8.0：原来要求被包含的那一方至少 3 个字，于是两字标题完全逃过去重
+ * （「空椅」与「一把空椅」被当成两个不同标题）。中文两字标题很常见，
+ * 现在只要「短的 ≥2 字、长的比短的多不超过 2 字」就判重。
+ */
 function isNearDuplicate(a: string, b: string): boolean {
   const norm = (s: string) => s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
   const x = norm(a);
   const y = norm(b);
   if (!x || !y) return false;
   if (x === y) return true;
-  if (x.length >= 3 && y.includes(x)) return true;
-  if (y.length >= 3 && x.includes(y)) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length >= 3 && long.includes(short)) return true;
+  if (short.length >= 2 && long.includes(short) && long.length - short.length <= 2) return true;
   return false;
 }
 
