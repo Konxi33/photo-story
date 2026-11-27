@@ -431,7 +431,7 @@ export default function FlipPage(): React.JSX.Element {
                   aria-pressed={padBlank}
                   title={
                     padBlank
-                      ? '末尾的空白页是补出来的印张，关掉只看真实内容'
+                      ? '末尾的空白页是补出来的印张，点一下只看真实内容'
                       : '末尾补 1–3 页空白，凑满一叠印张（看印刷出来是什么样）'
                   }
                   onClick={() => {
@@ -444,7 +444,7 @@ export default function FlipPage(): React.JSX.Element {
                   variant={padBlank ? 'secondary' : 'ghost'}
                 >
                   <Layers className="mr-1.5 size-3.5" />
-                  {padBlank ? '不补白页' : '补白页'}
+                  补白页
                 </Button>
                 <Segmented
                   ariaLabel="预览方式"
