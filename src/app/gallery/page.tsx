@@ -322,7 +322,7 @@ export default function GalleryPage() {
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
             <p className="ps-cap">Gallery</p>
-            <h1 className="ps-serif ps-display mt-1.5 text-[26px] leading-[1.05] tracking-[0.01em] text-ink">
+            <h1 className="ps-page-title-compact mt-1.5">
               照片库
             </h1>
           </div>

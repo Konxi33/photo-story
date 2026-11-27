@@ -3,8 +3,14 @@
 
 // 数字滚动（0.5.1）：统计卡片的数字从 0 滚到目标值。
 // 用 rAF + 缓出曲线，避免引入动画库；尊重 prefers-reduced-motion。
+//
+// 0.8.0：接上设置里的「数字滚动」区域开关与 --motion-scale。
+// 关掉这个区域、或总档位是「关闭」时，数字直接是结果，不再从 0 滚 ——
+// 低性能机器上这种每帧 setState 的滚动是最该先砍掉的东西。
 
 import { useEffect, useRef, useState } from 'react';
+
+import { motionEnabled, motionScale } from '@/lib/motion-prefs';
 
 interface CountUpProps {
   value: number;
@@ -30,17 +36,30 @@ export function CountUp({
   const doneRef = useRef(false);
 
   useEffect(() => {
+    const settle = (): void => {
+      setShown(value);
+      doneRef.current = true;
+      fromRef.current = value;
+    };
+
+    // 区域关掉 / 总档位关闭：不滚，直接给结果
+    const scaled = duration * motionScale();
+    if (!motionEnabled('numbers') || scaled < 60) {
+      settle();
+      return;
+    }
+
     const reduce =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (reduce) {
-      setShown(value);
+      settle();
       return;
     }
 
     if (doneRef.current && !replayOnChange) {
-      setShown(value);
+      settle();
       return;
     }
 
@@ -49,7 +68,7 @@ export function CountUp({
     let raf = 0;
 
     const tick = (now: number): void => {
-      const t = Math.min(1, (now - start) / duration);
+      const t = Math.min(1, (now - start) / scaled);
       const v = from + (value - from) * easeOut(t);
       setShown(v);
       if (t < 1) raf = requestAnimationFrame(tick);
@@ -62,5 +81,5 @@ export function CountUp({
     return () => cancelAnimationFrame(raf);
   }, [value, duration, replayOnChange]);
 
-  return <span className={className}>{shown.toFixed(decimals)}</span>;
+  return <span className={className ?? 'ps-num'}>{shown.toFixed(decimals)}</span>;
 }

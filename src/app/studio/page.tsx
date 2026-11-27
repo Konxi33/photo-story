@@ -751,7 +751,7 @@ export default function StudioPage() {
           <header className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-faint">排版台</p>
-              <h1 className="mt-1 text-[26px] font-semibold tracking-tight">这一页，你自己摆</h1>
+              <h1 className="ps-page-title-compact mt-1">这一页，你自己摆</h1>
               <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-soft">
                 <span className="inline-flex items-center gap-1">
                   <Move className="size-3.5 text-copper" aria-hidden />

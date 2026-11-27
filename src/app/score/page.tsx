@@ -384,8 +384,8 @@ export default function ScorePage() {
         <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="ps-eyebrow">Score</p>
-            <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">评分</h1>
-            <p className="mt-2 max-w-[38rem] text-[13px] leading-relaxed text-ink-mid">
+            <h1 className="ps-page-title mt-2">评分</h1>
+            <p className="ps-page-desc mt-2">
               所有项目的照片分数都在这里。按赛事标准校准，点开可以看分项与改进建议。
             </p>
           </div>

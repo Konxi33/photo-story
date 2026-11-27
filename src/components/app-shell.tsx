@@ -44,6 +44,7 @@ import {
   type Appearance,
 } from '@/lib/appearance';
 import { KvRepository } from '@/lib/db';
+import { applyMotion, motionEnabled, normalizeMotion, readStoredMotion } from '@/lib/motion-prefs';
 import { checkForUpdate, clearPendingUpdate, readPendingUpdate } from '@/lib/updater';
 import { cn, formatBytes, withTimeout } from '@/lib/utils';
 import type { AppSettings, StorageUsage, ThemeMode } from '@/types/domain';
@@ -134,12 +135,6 @@ function readLastIndicator(compact: boolean): IndicatorPos | null {
   return { top: lastIndicatorValue.top, height: lastIndicatorValue.height };
 }
 
-/** 首帧外观：同步读 localStorage，避免 useEffect 用默认值覆盖预渲染主题 */
-function readInitialAppearance(): Appearance {
-  if (typeof window === 'undefined') return DEFAULT_APPEARANCE;
-  return readStoredAppearance();
-}
-
 const COLLAPSE_KEY = 'ps:sidebar-collapsed';
 
 /** 顶栏那个太阳/月亮/显示器按钮上的说明文字 */
@@ -164,7 +159,18 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [appearance, setAppearance] = useState<Appearance>(readInitialAppearance);
+  /**
+   * 0.8.0 修：外观状态**不要在 useState 初始化里读 localStorage**。
+   *
+   * 服务端渲染时 document 不存在，初始值只能是 DEFAULT_APPEARANCE（themeMode='system'）；
+   * 客户端水合时如果同步读到本地存的 'light'，两边渲染出的顶栏按钮 title / aria-label /
+   * 太阳月亮图标就不一样 —— 这就是那个从 0.7.x 一直挂着的「React #418 整页重画」
+   * （以前只在生产包复现，dev 下 React 只在控制台报错不重画，所以一直没抓到）。
+   * 现在首帧用默认值和服务端对齐，真正的外观值在水合之后的那一个 effect 里补上；
+   * layout.tsx 的首帧脚本已经把主题画进 <html>，所以肉眼看不到闪烁。
+   */
+  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
+  const appearanceReady = useRef(false);
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [direction, setDirection] = useState<'next' | 'prev'>('next');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -174,9 +180,18 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
 
   const hoverSidebar = settings?.sidebarMode === 'hover';
 
-  // 主题
+  // 主题：水合前不动 document（首帧脚本已经按 cookie 画好了）；
+  // 水合后用一次性的 effect 把 localStorage 里的真实外观补进来。
+  useEffect(() => {
+    const stored = readStoredAppearance();
+    setAppearance(stored);
+    applyAppearance(stored);
+    appearanceReady.current = true;
+  }, []);
+
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    if (!appearanceReady.current) return;
     applyAppearance(appearance);
   }, [appearance]);
 
@@ -188,6 +203,24 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, [appearance.themeMode]);
+
+  /**
+   * 0.8.0 动效偏好：首帧已经由 layout.tsx 的 cookie + 首帧脚本写进 <html>，
+   * 这里只做两件事 —— ①cookie 过期时用 localStorage 补一次；②监听设置页的实时改动。
+   * 组件渲染时**不读**这个值（那会造成服务端/客户端类名不一致），
+   * 动画的开关一律交给 CSS 的 html[data-motion-*] 规则。
+   */
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    applyMotion(readStoredMotion());
+    const onMotion = (event: Event): void => {
+      const next = (event as CustomEvent<unknown>).detail;
+      // 设置页里的「实时预览」：只改当前这一屏，不落盘（落盘在保存时由 ps:settings-saved 负责）
+      if (next) applyMotion(normalizeMotion(next), false);
+    };
+    window.addEventListener('ps:motion-changed', onMotion as EventListener);
+    return () => window.removeEventListener('ps:motion-changed', onMotion as EventListener);
+  }, []);
 
   /**
    * 0.7.1：顶栏的一键外观切换 —— 跟随系统 → 浅色 → 深色 → 跟随系统。
@@ -214,6 +247,10 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
           )) ?? null;
         setSettings(saved);
         if (saved) {
+          // 0.8.0：动效偏好以 localStorage 为准，kv 只在本地还没记录时兜底
+          if (saved.motion && typeof window !== 'undefined' && window.localStorage.getItem('ps:motion') === null) {
+            applyMotion(normalizeMotion(saved.motion));
+          }
           const stored = readStoredAppearance();
           const hasStored =
             typeof window !== 'undefined' && window.localStorage.getItem('ps:appearance') !== null;
@@ -262,6 +299,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
       const next = (event as CustomEvent<AppSettings | undefined>).detail;
       if (!next) return;
       setSettings(next);
+      if (next.motion) applyMotion(normalizeMotion(next.motion));
       if (
         typeof next.sidebarCollapsed === 'boolean' &&
         window.localStorage.getItem(COLLAPSE_KEY) === null
@@ -565,7 +603,6 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
   }, [pathname]);
 
   const blur = settings?.backgroundBlur ?? 14;
-  const animations = settings?.animations !== false;
 
   // 0.7.0：顶栏左侧的「当前位置」——分组名当眉标，模块名当正文
   const activeNav =
@@ -582,14 +619,14 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         <div
           className={cn(
             'absolute -top-40 -left-32 h-[46vw] w-[46vw] rounded-full opacity-90',
-            animations && 'ps-drift',
+            'ps-drift',
           )}
           style={{ background: 'var(--blob-1)', filter: `blur(${blur}px)` }}
         />
         <div
           className={cn(
             'absolute top-1/4 -right-40 h-[54vw] w-[54vw] rounded-full opacity-90',
-            animations && 'ps-drift-slow',
+            'ps-drift-slow',
           )}
           style={{ background: 'var(--blob-2)', filter: `blur(${blur}px)` }}
         />
@@ -720,7 +757,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
         {/* 0.7.2：切页时这里划过一道陶土细线 —— 内容本身有滑入动画，
             但顶上一道 2px 的进度线能让「正在进入下一处」更有交代。 */}
         <div
-          key={pathname}
+          key={`bar-${pathname}`}
           aria-hidden
           className="ps-route-bar pointer-events-none absolute top-0 right-0 left-0 z-40 h-[2px] bg-gradient-to-r from-copper/0 via-copper/80 to-copper/0"
         />
@@ -813,7 +850,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
               aria-hidden
               className={cn(
                 'pointer-events-none sticky top-[var(--header-h)] z-20 -mt-px h-px',
-                animations && 'ps-stage-line',
+                'ps-stage-line',
               )}
               style={{
                 background:
@@ -827,7 +864,7 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
           key={pathname}
           className={cn(
             'ps-page-shell',
-            animations && (direction === 'next' ? 'ps-page-next' : 'ps-page-prev'),
+            direction === 'next' ? 'ps-page-next' : 'ps-page-prev',
           )}
         >
           {children}
@@ -916,6 +953,16 @@ function SidebarContent({
     // 侧栏里唯一会滚的容器；底部的「设置」项在它外面，不参与裁剪
     const list = scrollRef.current;
     const scrollable = list && list.contains(item) ? list : null;
+
+    /**
+     * 0.8.0：指示条的所有补间都走这个包装。
+     * 用户在设置里关掉「侧栏动效」（或系统开了减少动态）时，直接落到终态，
+     * 一条 WAAPI 都不排 —— 低端机上这条泛光条是侧栏里最贵的动画。
+     */
+    const animate = (frames: Keyframe[] | PropertyIndexedKeyframes, options: KeyframeAnimationOptions): void => {
+      if (!motionEnabled('sidebar')) return;
+      bar.animate(frames, options);
+    };
 
     /*
      * 0.7.1：选中项整个被滚出可视区时（窗口矮 / 直接打开深链接 / 从别处跳进来 /
@@ -1029,7 +1076,7 @@ function SidebarContent({
       const shrunk: IndicatorPos = { ...applied };
       render(now);
       if (!now.visible) return;
-      bar.animate(
+      animate(
         [
           {
             transform: `translateY(${shrunk.top}px)`,
@@ -1082,7 +1129,7 @@ function SidebarContent({
 
     if (first) {
       render(target);
-      bar.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+      animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
     } else {
       const distance = Math.abs(target.top - from.top);
       const movingUp = target.top < from.top;
@@ -1094,7 +1141,7 @@ function SidebarContent({
        */
       if (distance > 120) {
         render(target);
-        bar.animate(
+        animate(
           [
             { transform: `translateY(${target.top}px)`, height: `${target.height}px`, opacity: 0 },
             {
@@ -1118,7 +1165,7 @@ function SidebarContent({
 
       const duration = Math.round(Math.min(520, 240 + distance * 0.45));
 
-      bar.animate(
+      animate(
         [
           {
             transform: `translateY(${from.top}px)`,

@@ -9,6 +9,7 @@ import {
   Eye,
   EyeOff,
   FolderOpen,
+  Gauge,
   Loader2,
   Maximize2,
   Palette,
@@ -74,6 +75,16 @@ import { FRAME_PRESETS } from '@/lib/export/frame';
 import { LAYOUT_PRESETS } from '@/lib/export/layout';
 import { applyAppearance, readStoredAppearance } from '@/lib/appearance';
 import {
+  DEFAULT_MOTION,
+  MOTION_LEVELS,
+  MOTION_REGIONS,
+  MOTION_REGION_INFO,
+  allMotionRegions,
+  applyMotion,
+  normalizeMotion,
+  readStoredMotion,
+} from '@/lib/motion-prefs';
+import {
   checkForUpdate,
   clearPendingUpdate,
   describeSize,
@@ -89,6 +100,7 @@ import type {
   FontFamily,
   FrameStyle,
   ImageDetailLevel,
+  MotionSettings,
   NarrativeStyle,
   ReasoningLevel,
   SettingsUpdateRequest,
@@ -110,6 +122,7 @@ const NAV_ITEMS: ReadonlyArray<readonly [string, string]> = [
   ['style', '文案风格'],
   ['gen', '生成参数'],
   ['look', '外观'],
+  ['motion', '动效'],
   ['perf', '性能'],
   ['photo', '照片与相框'],
   ['start', '打开与默认'],
@@ -149,7 +162,10 @@ export default function SettingsPage() {
   // 外观 / 照片
   const [theme, setTheme] = useState<NonNullable<AppSettings['theme']>>('paper');
   const [backgroundBlur, setBackgroundBlur] = useState(14);
-  const [animations, setAnimations] = useState(true);
+  // 0.8.0：动效偏好（档位 + 七个区域开关）。初值用默认值，真正的值在加载 effect 里从
+  // localStorage 读——不能在 useState 初始化里读 localStorage，那会让服务端/客户端首帧不一致。
+  const [motion, setMotion] = useState<MotionSettings>(DEFAULT_MOTION);
+  const motionReady = useRef(false);
   // 0.6.0：这两项以前写死（1024 / 640），设置里调不到；老电脑要更小更快。
   const [aiEdge, setAiEdge] = useState(1024);
   const [previewEdge, setPreviewEdge] = useState(640);
@@ -229,6 +245,31 @@ export default function SettingsPage() {
   }, [themeMode, glass, glassBlur, fontFamily, loading]);
 
   /**
+   * 0.8.0：动效开关实时预览。
+   * 只有「加载完成之后」才允许写 —— 否则挂载首帧就会拿默认值把用户存的偏好冲掉，
+   * 这正是 0.7.1 那次「改回浅色不生效」的同一种错误，不能再犯第二次。
+   */
+  useEffect(() => {
+    if (!motionReady.current) return;
+    // 实时预览：只改这一屏，不落盘；点「保存设置」时才真正写 localStorage/cookie
+    applyMotion(motion, false);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ps:motion-changed', { detail: motion }));
+    }
+  }, [motion]);
+
+  /**
+   * 0.8.0：离开设置页时把「没保存的预览」收回去。
+   * 实时预览只改 <html> 上的 data-motion-*，不写 localStorage；如果用户试了一圈
+   * 没点保存就切走，界面应该回到他已保存的偏好，而不是停在试用值上。
+   */
+  useEffect(() => {
+    return () => {
+      applyMotion(readStoredMotion());
+    };
+  }, []);
+
+  /**
    * 0.7.1：选了「跟随系统」之后，系统在浅色/深色之间切换要立刻生效。
    * 原来只在切换选项的那一刻读一次 prefers-color-scheme，系统真变了界面不动，
    * 用户看到的就是「跟随系统好像没用」。
@@ -281,7 +322,12 @@ export default function SettingsPage() {
         setStoryLength(s.storyLength ?? 'medium');
         setTheme(s.theme ?? 'paper');
         setBackgroundBlur(s.backgroundBlur ?? 14);
-        setAnimations(s.animations ?? true);
+        // 0.8.0：动效偏好同样以 localStorage 为准（实时预览与保存都写那里），kv 只兜老用户
+        const storedMotion = readStoredMotion();
+        const hasStoredMotion =
+          typeof window !== 'undefined' && window.localStorage.getItem('ps:motion') !== null;
+        setMotion(hasStoredMotion ? storedMotion : normalizeMotion(s.motion ?? { level: (s.animations === false ? 'off' : 'full'), regions: DEFAULT_MOTION.regions }));
+        motionReady.current = true;
         setWallColumns(s.wallColumns ?? 3);
         setCompressOnUpload(s.compressOnUpload ?? true);
         setKeepOriginal(s.keepOriginal ?? true);
@@ -362,7 +408,6 @@ export default function SettingsPage() {
         storyLength,
         theme,
         backgroundBlur,
-        animations,
         wallColumns,
         compressOnUpload,
         keepOriginal,
@@ -380,6 +425,7 @@ export default function SettingsPage() {
         autoCheckUpdates,
         startPage,
         defaultLayoutPreset,
+        motion,
       }),
     [
       provider,
@@ -400,7 +446,6 @@ export default function SettingsPage() {
       storyLength,
       theme,
       backgroundBlur,
-      animations,
       wallColumns,
       compressOnUpload,
       keepOriginal,
@@ -418,6 +463,7 @@ export default function SettingsPage() {
       autoCheckUpdates,
       startPage,
       defaultLayoutPreset,
+      motion,
     ],
   );
 
@@ -494,7 +540,7 @@ export default function SettingsPage() {
         storyLength,
         theme,
         backgroundBlur,
-        animations,
+        animations: motion.level !== 'off',
         wallColumns,
         compressOnUpload,
         keepOriginal,
@@ -513,8 +559,12 @@ export default function SettingsPage() {
         autoCheckUpdates,
         startPage,
         defaultLayoutPreset,
+        motion,
       };
       await KvRepository.set(STORAGE_KEY_APP_SETTINGS, appSettings);
+
+      // 动效偏好这时候才真正落盘（上面的实时预览刻意不写 localStorage/cookie）
+      applyMotion(motion);
 
       /*
        * 0.7.2：通知外壳「设置变了」。
@@ -638,8 +688,8 @@ export default function SettingsPage() {
     >
       <div className="mx-auto w-full max-w-5xl px-5 py-9 md:px-8">
         <p className="ps-eyebrow">Settings</p>
-        <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">设置</h1>
-        <p className="mt-2 text-[13px] text-ink-mid">
+        <h1 className="ps-page-title mt-2">设置</h1>
+        <p className="ps-page-desc mt-2">
           {APP_NAME} v{APP_VERSION} · 所有配置只保存在本机
         </p>
 
@@ -979,9 +1029,98 @@ export default function SettingsPage() {
             <Slider min={0} max={32} step={2} value={[backgroundBlur]} onValueChange={(v) => setBackgroundBlur(v[0] ?? backgroundBlur)} />
           </Field>
 
-          <Row label="界面动效" desc="卡片淡入、面板回弹、点击缩放">
-            <Switch aria-label="界面动效" checked={animations} onCheckedChange={setAnimations} />
-          </Row>
+        </Section>
+
+        {/* 动效（0.8.0）：总档位 + 按区域开关。
+            以前只有一个「界面动效」总开关，老电脑只能全关，连淡入都没了；
+            现在可以只关最费性能的那几块（照片墙惯性、背景呼吸），其余照旧。 */}
+        <Section
+          id="motion"
+          icon={<Gauge className="h-4 w-4" />}
+          title="动效"
+          desc="页面 3D 转场、卡片进场、照片墙惯性、数字滚动。老电脑可以只关其中几块"
+        >
+          <Field label="动效强度">
+            <Segmented
+              block
+              ariaLabel="动效强度"
+              options={MOTION_LEVELS.map((level) => ({
+                value: level.id,
+                label: level.label,
+                title: level.hint,
+              }))}
+              value={motion.level}
+              onChange={(level) => setMotion((prev) => ({ ...prev, level }))}
+            />
+          </Field>
+          <p className="-mt-2 text-[11px] leading-relaxed text-ink-faint">
+            {MOTION_LEVELS.find((level) => level.id === motion.level)?.hint}
+            {motion.level === 'off' && '。下面的区域开关会一起失效，需要哪块就先把强度调回来。'}
+          </p>
+
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <p className="ps-eyebrow">按区域开关</p>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="ps-pressable h-7 px-2 text-[11px]"
+                disabled={motion.level === 'off'}
+                onClick={() => setMotion((prev) => ({ ...prev, regions: allMotionRegions(true) }))}
+              >
+                全开
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ps-pressable h-7 px-2 text-[11px]"
+                disabled={motion.level === 'off'}
+                onClick={() => setMotion((prev) => ({ ...prev, regions: allMotionRegions(false) }))}
+              >
+                全关
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+            {MOTION_REGIONS.map((region) => {
+              const info = MOTION_REGION_INFO[region];
+              const disabled = motion.level === 'off';
+              return (
+                <div key={region} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Label
+                      htmlFor={`motion-${region}`}
+                      className={cn(
+                        'text-[13px] font-normal',
+                        disabled ? 'text-ink-faint' : 'text-ink',
+                      )}
+                    >
+                      {info.label}
+                    </Label>
+                    <p className="mt-0.5 text-[11px] leading-snug text-ink-faint">{info.hint}</p>
+                  </div>
+                  <Switch
+                    id={`motion-${region}`}
+                    aria-label={info.label}
+                    className="mt-0.5 shrink-0"
+                    disabled={disabled}
+                    checked={!disabled && motion.regions[region]}
+                    onCheckedChange={(next) =>
+                      setMotion((prev) => ({
+                        ...prev,
+                        regions: { ...prev.regions, [region]: next },
+                      }))
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            系统里打开了「减少动态效果」时，会自动降到「克制」档，就算这里选「完整」也不会转场旋转。
+          </p>
         </Section>
 
         {/* 性能（0.6.0 新增：这两项以前写死，老电脑调不动） */}

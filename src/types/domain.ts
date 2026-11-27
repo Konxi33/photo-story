@@ -338,6 +338,8 @@ export interface AppSettings {
   defaultLayoutPreset?: string;
   /** 0.5.7：启动时是否自动检查新版本（默认开） */
   autoCheckUpdates?: boolean;
+  /** 0.8.0：动效偏好（档位 + 分区域开关），见 src/lib/motion-prefs.ts */
+  motion?: MotionSettings;
 }
 
 /** AI 服务商预设 */
@@ -354,6 +356,18 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 
 /** 0.3.4：字体方案 */
 export type FontFamily = 'round' | 'system' | 'song';
+
+/** 0.8.0：动效档位 */
+export type MotionLevel = 'full' | 'normal' | 'minimal' | 'off';
+
+/** 0.8.0：可以单独开关的动效区域 */
+export type MotionRegion = 'page' | 'cards' | 'wall' | 'sidebar' | 'dialogs' | 'numbers' | 'background';
+
+/** 0.8.0：动效偏好 */
+export interface MotionSettings {
+  level: MotionLevel;
+  regions: Record<MotionRegion, boolean>;
+}
 
 export interface AiConfigPublic {
   provider: AiProvider;

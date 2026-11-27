@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Maximize2, Minimize2, RotateCcw, X } from 'lucide-react';
 import type { Photo } from '@/types/domain';
+import { motionEnabled } from '@/lib/motion-prefs';
 import { loadPreview, peekPreview } from './preview-cache';
 import { fieldAt, fieldRadius } from './wall-field';
 
@@ -349,6 +350,12 @@ export function PhotoWall({
   stepRef.current = (ts: number) => {
     const dt = Math.min(48, Math.max(1, ts - lastTsRef.current)) || 16.7;
     lastTsRef.current = ts;
+
+    // 0.8.0：设置里关掉「照片墙」区域 → 松手即停，不再有惯性滑行
+    if (!motionEnabled('wall')) {
+      velRef.current.x = 0;
+      velRef.current.y = 0;
+    }
 
     let moving = pressedRef.current;
     if (!pressedRef.current) {

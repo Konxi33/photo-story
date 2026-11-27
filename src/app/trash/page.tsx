@@ -140,8 +140,8 @@ export default function TrashPage() {
     >
       <div className="mx-auto grid w-full max-w-5xl gap-5 px-5 py-8 md:px-8">
         <header className="grid gap-1.5">
-          <h1 className="ps-display text-[26px] leading-tight">回收站</h1>
-          <p className="max-w-2xl text-[12.5px] leading-relaxed text-ink-soft">
+          <h1 className="ps-page-title">回收站</h1>
+          <p className="ps-page-desc">
             删除的照片会先来这里，随时能恢复。确认不要了再彻底删除——
             那一步才真的把图片从磁盘上抹掉。
           </p>

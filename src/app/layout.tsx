@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { Toaster } from '@/components/ui/sonner';
 import { APP_DESCRIPTION, APP_NAME, APP_NAME_EN } from '@/config/app';
 import { UI_COOKIE, SIDEBAR_COOKIE } from '@/lib/appearance';
+import { MOTION_COOKIE, MOTION_REGIONS, readMotionCookie, resolveMotion } from '@/lib/motion-prefs';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -43,6 +44,23 @@ if(raw){
   set('font',s.fontFamily||'round');
 }
 try{var c=localStorage.getItem('ps:sidebar-collapsed');if(c!==null){set('sidebar',c==='1'?'compact':'expanded');}}catch(e){}
+try{
+  var m=localStorage.getItem('ps:motion');
+  if(m){
+    var mo=JSON.parse(m)||{};var lv=mo.level||'full';var rg=mo.regions||{};
+    if(lv==='off'){lv='off';}
+    set('motion',lv);
+    var names=['page','cards','wall','sidebar','dialogs','numbers','background'];
+    for(var i=0;i<names.length;i++){
+      var n=names[i];var on=rg[n]!==false&&lv!=='off';
+      set('motion'+n.charAt(0).toUpperCase()+n.slice(1),on?'on':'off');
+    }
+    // 0.8.0：JS 动效（数字滚动、侧栏指示条）按这个倍数算时长。
+    // 不写的话首帧读到的 --motion-scale 是空串，Number('') 是 0，动画会直接跳到终点。
+    var sc = lv==='off'?0:(lv==='minimal'?0.45:(lv==='normal'?0.8:1));
+    d.style.setProperty('--motion-scale', String(sc));
+  }
+}catch(e){}
 }catch(e){}})();`;
 
 type UiState = {
@@ -72,10 +90,18 @@ export default async function RootLayout({
   const jar = await cookies();
   const ui = readUi(jar.get(UI_COOKIE)?.value);
   const sidebar = jar.get(SIDEBAR_COOKIE)?.value === 'compact' ? 'compact' : 'expanded';
+  // 0.8.0：动效偏好也走 cookie，服务端直接画成 data-motion-* —— 首帧就不会「先动一下再停」
+  const motion = resolveMotion(readMotionCookie(jar.get(MOTION_COOKIE)?.value), false);
+  const motionAttrs = MOTION_REGIONS.reduce<Record<string, string>>((acc, region) => {
+    const key = `data-motion-${region}`;
+    acc[key] = motion.regions[region] && motion.level !== 'off' ? 'on' : 'off';
+    return acc;
+  }, {});
 
   // 首帧就把主题、玻璃、字体、侧栏密度画进 HTML，React 水合时两边一致。
   const htmlStyle = {
     '--glass-blur': `${ui.blur}px`,
+    '--motion-scale': String(motion.scale),
     colorScheme: ui.theme,
   } as CSSProperties;
 
@@ -87,6 +113,8 @@ export default async function RootLayout({
       data-glass={ui.glass}
       data-font={ui.font}
       data-sidebar={sidebar}
+      data-motion={motion.level}
+      {...motionAttrs}
       style={htmlStyle}
       suppressHydrationWarning
     >

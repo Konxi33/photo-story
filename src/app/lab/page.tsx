@@ -244,8 +244,8 @@ export default function LabPage() {
         <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="ps-eyebrow">Copy Lab</p>
-            <h1 className="ps-display mt-2 text-[30px] text-ink sm:text-[34px]">文案实验室</h1>
-            <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-ink-mid">
+            <h1 className="ps-page-title mt-2">文案实验室</h1>
+            <p className="ps-page-desc mt-2">
               同一张照片，四种写法一起写。文笔好坏放在一起才比得出来——
               满意的那条直接采用，不满意就换一批。
             </p>

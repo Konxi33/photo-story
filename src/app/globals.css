@@ -322,6 +322,52 @@
   line-height: 1.16;
 }
 
+/* 0.8.0：页面主标题只有两种尺寸，一张页面挑一个用。
+   以前各页各写 text-[26px] / text-[30px] / text-[40px] + 各自的 leading / tracking，
+   照片库、翻页预览、回收站、排版台四页的标题比别页小一号、字距也不一样，
+   一排切过去就能看出「不是一套东西」。这里收成两档：
+   ps-page-title   —— 文档流页面（评分/编排/文案/设置/评审/主题馆/更新日志/回收站/翻页预览）
+   ps-page-title-compact —— 满屏工作台（照片库/排版台），标题让位给上面的工具栏
+   ps-page-desc 是标题下面那句说明，字号/行高/灰度也统一。 */
+.ps-page-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.06;
+  letter-spacing: -0.022em;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+@media (min-width: 640px) {
+  .ps-page-title {
+    font-size: 34px;
+  }
+}
+
+.ps-page-title-compact {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.018em;
+  color: var(--color-ink);
+}
+
+@media (min-width: 640px) {
+  .ps-page-title-compact {
+    font-size: 27px;
+  }
+}
+
+.ps-page-desc {
+  max-width: 38rem;
+  font-size: 13px;
+  line-height: 1.72;
+  color: var(--color-ink-mid);
+  text-wrap: pretty;
+}
+
 /* 小标签（分组标题、字段名）：大写字距
    0.7.0：字重降一档、字距再开一点，配深一号的灰，避免满屏小黑块 */
 @utility ps-eyebrow {
@@ -808,49 +854,56 @@ html[data-motion='drift'] .ps-drift-slow {
   animation: ps-slide-right 420ms var(--ease-out) backwards;
 }
 
-/* 一级菜单切换：按方向滑动 + 非线性高斯模糊 */
+/* 一级菜单切换：按方向做**真的三维推拉**（0.8.0 重做）
+   老版本用的是 `filter: blur(8px) → 0`，那是每帧重新做一次全页高斯模糊，
+   一张 1400×900 的页面在软件合成下要 20ms+，转场必然掉帧（用户说的「不丝滑」）。
+   现在改成只在合成器里发生的 3D 变换：
+     · perspective + rotateY 让旧页「退到侧面」，新页从另一侧转回正面
+     · translateZ 制造前后景深，替代原来的「模糊＝远」的直觉
+   全部是 transform + opacity，不碰 layout / paint / filter。 */
 @keyframes ps-page-next {
   0% {
     opacity: 0;
-    transform: translateX(22px) scale(0.996);
-    filter: blur(8px);
+    transform: perspective(1600px) translate3d(26px, 0, -46px) rotateY(-5.5deg) scale(0.995);
   }
-  55% {
-    filter: blur(1.5px);
+  60% {
+    opacity: 1;
+    transform: perspective(1600px) translate3d(3px, 0, -6px) rotateY(-0.8deg) scale(1);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: perspective(1600px) translate3d(0, 0, 0) rotateY(0deg) scale(1);
   }
 }
 
 @keyframes ps-page-prev {
   0% {
     opacity: 0;
-    transform: translateX(-22px) scale(0.996);
-    filter: blur(8px);
+    transform: perspective(1600px) translate3d(-26px, 0, -46px) rotateY(5.5deg) scale(0.995);
   }
-  55% {
-    filter: blur(1.5px);
+  60% {
+    opacity: 1;
+    transform: perspective(1600px) translate3d(-3px, 0, -6px) rotateY(0.8deg) scale(1);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: perspective(1600px) translate3d(0, 0, 0) rotateY(0deg) scale(1);
   }
 }
 
 /* 转场动画的 fill-mode 必须是 backwards，不能是 both：
-   both 会把 100% 关键帧的 `transform: translateX(0) scale(1)` 与 `filter: blur(0)`
-   永久留在元素上，而**任何非 none 的 transform/filter 都会让该元素成为
-   position:fixed 后代的包含块**。照片库按日期分组时页面高 5800px，
-   于是预览浮层按 5800px 去居中 → 跑到屏幕外，要滚动才看得见（用户 0.5.5 报的 bug）。 */
+   both 会把 100% 关键帧的 `transform` 永久留在元素上，而**任何非 none 的
+   transform 都会让该元素成为 position:fixed 后代的包含块**。照片库按日期分组
+   时页面高 5800px，于是预览浮层按 5800px 去居中 → 跑到屏幕外（0.5.5 的 bug）。 */
 @utility ps-page-next {
-  animation: ps-page-next 340ms var(--ease-out) backwards;
+  animation: ps-page-next 380ms var(--ease-out) backwards;
+  transform-origin: 50% 42%;
+  will-change: transform, opacity;
 }
 @utility ps-page-prev {
-  animation: ps-page-prev 340ms var(--ease-out) backwards;
+  animation: ps-page-prev 380ms var(--ease-out) backwards;
+  transform-origin: 50% 42%;
+  will-change: transform, opacity;
 }
 
 /* 转场容器：裁掉横向溢出，避免切换时出现滚动条。
@@ -2343,4 +2396,195 @@ h2.ps-eyebrow::before {
 .ps-section {
   display: grid;
   gap: 1.25rem;
+}
+/* ==========================================================================
+ * 0.8.0 动效系统 v2 —— token / 3D 景深 / 分区域开关
+ *
+ * 设计原则（改这一节之前先读）：
+ *   1. 只动 transform 与 opacity，绝不碰 filter / backdrop-filter / width /
+ *      height / box-shadow 的补间。0.7.x 的页面转场动的是 filter: blur，
+ *      每帧全页重拍，这就是「不丝滑」的元凶。
+ *   2. 时长与幅度都走变量，档位切换只改变量，组件不用写第二套样式。
+ *   3. 每个区域都有自己的 data-motion-* 属性，关掉一个区域不会留下半截动画：
+ *      对应的 `animation: none` / `transition: none` / `transform: none` 三条一起写。
+ *   4. 系统开了「减少动态效果」时，即使 JS 没跑到，CSS 这边也要自己降级。
+ * ========================================================================== */
+
+:root {
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 380ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+  --ease-inout: cubic-bezier(0.65, 0.05, 0.36, 1);
+  --lift-1: -2px;
+  --lift-2: -4px;
+  --scene-tilt: 1.6deg;
+  --motion-scale: 1;
+}
+
+html[data-motion='normal'] {
+  --scene-tilt: 0deg;
+  --dur-3: 320ms;
+}
+
+html[data-motion='minimal'] {
+  --dur-1: 90ms;
+  --dur-2: 140ms;
+  --dur-3: 200ms;
+  --lift-1: 0px;
+  --lift-2: 0px;
+  --scene-tilt: 0deg;
+  --motion-scale: 0.45;
+}
+
+html[data-motion='off'] {
+  --dur-1: 1ms;
+  --dur-2: 1ms;
+  --dur-3: 1ms;
+  --lift-1: 0px;
+  --lift-2: 0px;
+  --scene-tilt: 0deg;
+  --motion-scale: 0;
+}
+
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation-duration: 1ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  transition-delay: 0ms !important;
+}
+
+/* —— 页面切换 —— */
+@keyframes ps-page-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+html[data-motion='minimal'] .ps-page-next,
+html[data-motion='minimal'] .ps-page-prev {
+  animation: ps-page-fade var(--dur-2) var(--ease-out) backwards;
+  will-change: opacity;
+}
+
+html[data-motion-page='off'] .ps-page-next,
+html[data-motion-page='off'] .ps-page-prev,
+html[data-motion-page='off'] .ps-stage-line {
+  animation: none !important;
+}
+
+/* —— 卡片：3D 抬升（真正带 perspective 的旋转，不是只位移）—— */
+.ps-tilt {
+  transform: perspective(1000px) translate3d(0, 0, 0) rotateX(0deg);
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.ps-tilt:hover {
+  transform: perspective(1000px) translate3d(0, var(--lift-2), 0) rotateX(var(--scene-tilt));
+  box-shadow: 0 18px 36px -22px color-mix(in srgb, var(--color-ink) 30%, transparent);
+}
+
+html[data-motion='minimal'] .ps-tilt:hover,
+html[data-motion='off'] .ps-tilt:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+html[data-motion-cards='off'] .ps-tilt,
+html[data-motion-cards='off'] .ps-tilt:hover,
+html[data-motion-cards='off'] .ps-card-lift:hover,
+html[data-motion-cards='off'] .ps-card-lift:active,
+html[data-motion-cards='off'] .ps-card-hover:hover {
+  transform: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+html[data-motion-cards='off'] .ps-stagger > *,
+html[data-motion-cards='off'] .ps-reveal,
+html[data-motion-cards='off'] .ps-reveal > *,
+html[data-motion-cards='off'] .ps-reveal-fade > *,
+html[data-motion-cards='off'] .ps-enter,
+html[data-motion-cards='off'] .ps-lift,
+html[data-motion-cards='off'] .ps-pressable {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+}
+
+html[data-motion='minimal'] .ps-stagger > *,
+html[data-motion='minimal'] .ps-reveal {
+  animation: none !important;
+}
+
+/* —— 侧栏指示条（JS/WAAPI 驱动，这里只兜住 CSS 过渡）—— */
+html[data-motion-sidebar='off'] .ps-sidebar-indicator {
+  transition: none !important;
+}
+
+/* —— 对话框与面板 —— */
+html[data-motion-dialogs='off'] [data-slot='dialog-content'],
+html[data-motion-dialogs='off'] [data-slot='sheet-content'],
+html[data-motion-dialogs='off'] [data-slot='dialog-overlay'],
+html[data-motion-dialogs='off'] [data-slot='sheet-overlay'] {
+  animation: none !important;
+}
+
+html[data-motion='minimal'] [data-slot='dialog-content'],
+html[data-motion='minimal'] [data-slot='sheet-content'] {
+  animation: ps-page-fade var(--dur-2) var(--ease-out) backwards;
+}
+
+/* —— 数字滚动 —— */
+html[data-motion-numbers='off'] .ps-num {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* —— 背景光斑 —— */
+html[data-motion-background='off'] .ps-drift,
+html[data-motion-background='off'] .ps-drift-slow {
+  animation: none !important;
+}
+
+html[data-motion='minimal'] .ps-drift {
+  animation-duration: 46s;
+}
+
+html[data-motion='minimal'] .ps-drift-slow {
+  animation-duration: 60s;
+}
+
+/* —— 系统级「减少动态效果」：JS 没跑也要降级 —— */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='off']) .ps-page-next,
+  html:not([data-motion='off']) .ps-page-prev {
+    animation: ps-page-fade 160ms var(--ease-out) backwards;
+  }
+
+  html:not([data-motion='off']) .ps-reveal,
+  html:not([data-motion='off']) .ps-stagger > *,
+  html:not([data-motion='off']) .ps-stage-line {
+    animation: none !important;
+  }
+
+  html:not([data-motion='off']) .ps-tilt:hover {
+    transform: none;
+  }
+
+  html:not([data-motion='off']) .ps-drift,
+  html:not([data-motion='off']) .ps-drift-slow {
+    animation-duration: 60s;
+  }
 }

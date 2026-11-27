@@ -239,8 +239,8 @@ export default function FlipPage(): React.JSX.Element {
       <div className="mx-auto grid w-full max-w-6xl gap-5 px-5 py-8 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid gap-1.5">
-            <h1 className="ps-display text-[26px] leading-tight">翻页预览</h1>
-            <p className="max-w-2xl text-[12.5px] leading-relaxed text-ink-soft">
+            <h1 className="ps-page-title">翻页预览</h1>
+            <p className="ps-page-desc">
               结构和导出的成书一致：封面 → 总览 → 章扉 → 图版 → 技术附录。图注按「编号 · 标题」，
               参数收到书末附录。翻一遍就知道图够不够大、章分得对不对。
             </p>
