@@ -57,8 +57,11 @@ try{
     }
     // 0.8.0：JS 动效（数字滚动、侧栏指示条）按这个倍数算时长。
     // 不写的话首帧读到的 --motion-scale 是空串，Number('') 是 0，动画会直接跳到终点。
+    // 注意：setProperty 会走 CSSOM 重新序列化整个 style 属性（"a:1" 会变成 "a: 1;"），
+    // 哪怕写进去的值一模一样，<html> 的 style 字符串也变了 —— 根元素上就是一次水合失败。
+    // 所以先读、真的不同才写。（0.8.0 实测：这一行让 15 条路由全部抛 #418。）
     var sc = lv==='off'?0:(lv==='minimal'?0.45:(lv==='normal'?0.8:1));
-    d.style.setProperty('--motion-scale', String(sc));
+    if(d.style.getPropertyValue('--motion-scale')!==String(sc)){d.style.setProperty('--motion-scale',String(sc));}
   }
 }catch(e){}
 }catch(e){}})();`;

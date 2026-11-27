@@ -264,6 +264,19 @@ export default function HomePage() {
                     <ShelfCard card={card} />
                   </li>
                 ))}
+                {/* 0.8.0：项目不满一排时补一个「放入新的一卷」的虚线位，
+                    否则一两个项目的书架右边空一大片，看着像加载失败 */}
+                {cards.length < 4 ? (
+                  <li>
+                    <Link
+                      href={ROUTES.projects}
+                      className="group flex h-[150px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-[var(--hairline)] text-[12px] text-ink-faint transition-colors duration-300 hover:border-copper/30 hover:text-ink"
+                    >
+                      <Plus className="h-4 w-4" strokeWidth={1.6} />
+                      放入新的一卷
+                    </Link>
+                  </li>
+                ) : null}
               </ul>
             )}
           </section>

@@ -174,8 +174,17 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [direction, setDirection] = useState<'next' | 'prev'>('next');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-    // 0.4.1：折叠状态同步写 localStorage，页面切换重挂载时能立即恢复
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  /**
+   * 0.8.0 修：折叠状态也不能在 useState 初始化里读 localStorage。
+   *
+   * 侧栏里有几十处 `{compact && …}` / `{!compact && …}` 条件渲染：服务端读不到 localStorage，
+   * 一律按「展开」渲染；客户端却按本地存的 '1' 渲染成「紧凑」——两侧 DOM 结构不同，
+   * React 19 判定整棵树水合失败（#418，每条路由一次，生产包里一直挂着）。
+   * 现在首帧一律按展开渲染（跟服务端一致），水合之后由下面的 effect 把真实值补进来；
+   * `<html data-sidebar>` 是首帧脚本按 localStorage 打的，CSS 规则
+   * `html[data-sidebar='compact'] aside.ps-sidebar` 早把宽度和文字藏好了，所以看不出闪。
+   */
+  const [collapsed, setCollapsed] = useState(false);
   const prevIndex = useRef<number>(FLAT.findIndex((i) => pathname.startsWith(i.href)));
 
   const hoverSidebar = settings?.sidebarMode === 'hover';
@@ -573,12 +582,26 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
    * 用户先折叠过一次（记住 '1'），再切到「悬浮展开」：悬浮面板会被压成 4.75rem、文字全没，
    * 看起来就是「点不开」。切模式时把 dataset 重新对齐到当前模式即可。
    */
+  const sidebarHydrated = useRef(false);
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    document.documentElement.dataset.sidebar = compact ? 'compact' : 'expanded';
+    // 水合首轮：collapsed 还是占位的 false，真实值要自己从 localStorage 读一次再来对齐，
+    // 否则「本来就折叠着」的用户会被翻成展开再翻回来，肉眼能看见一下闪。
+    const effective = sidebarHydrated.current ? collapsed : readCollapsed();
+    sidebarHydrated.current = true;
+    const compactNext = !hoverSidebar && effective;
+    document.documentElement.dataset.sidebar = compactNext ? 'compact' : 'expanded';
     // 0.7.3：镜像到 cookie，下一次打开服务端就能把密度直接画进 HTML（省掉一次水合重画）
-    mirrorSidebarCookie(compact);
-  }, [compact]);
+    mirrorSidebarCookie(compactNext);
+  }, [compact, hoverSidebar]);
+
+  /**
+   * 0.8.0：水合之后才补「记住的折叠状态」。
+   * 首帧必须按展开渲染（服务端读不到 localStorage），这里是唯一把真实值补回去的地方。
+   */
+  useEffect(() => {
+    setCollapsed(readCollapsed());
+  }, []);
 
   /**
    * 0.7.3：记住最近去过的页面，给命令面板做「最近打开」。

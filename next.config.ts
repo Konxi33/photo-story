@@ -52,6 +52,42 @@ const nextConfig: NextConfig = {
     // 浏览器构建直接指向它自带的 UMD 浏览器包，避免 node: 协议报错。
     config.resolve.alias = {
       ...(config.resolve.alias ?? {}),
+      // 只在排查水合失败（React #418）时打开：DEBUG_HYDRATION=1 会把 react/react-dom
+      // 换成 development 版，这样生产包里也能看到「服务器渲染了什么、客户端渲染了什么」的完整差异。
+      // 平时绝对不要开：dev 版体积大、速度慢，只用来定位。
+      ...(process.env.DEBUG_HYDRATION === '1'
+        ? {
+            react$: path.join(process.cwd(), 'node_modules', 'react', 'cjs', 'react.development.js'),
+            'react/jsx-runtime$': path.join(
+              process.cwd(),
+              'node_modules',
+              'react',
+              'cjs',
+              'react-jsx-runtime.development.js',
+            ),
+            'react/jsx-dev-runtime$': path.join(
+              process.cwd(),
+              'node_modules',
+              'react',
+              'cjs',
+              'react-jsx-dev-runtime.development.js',
+            ),
+            'react-dom$': path.join(
+              process.cwd(),
+              'node_modules',
+              'react-dom',
+              'cjs',
+              'react-dom.development.js',
+            ),
+            'react-dom/client$': path.join(
+              process.cwd(),
+              'node_modules',
+              'react-dom',
+              'cjs',
+              'react-dom-client.development.js',
+            ),
+          }
+        : {}),
       pptxgenjs$: path.join(
         process.cwd(),
         'node_modules',
