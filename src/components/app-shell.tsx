@@ -45,6 +45,7 @@ import {
 } from '@/lib/appearance';
 import { KvRepository } from '@/lib/db';
 import { applyMotion, motionEnabled, normalizeMotion, readStoredMotion } from '@/lib/motion-prefs';
+import { veilOut } from '@/lib/page-veil';
 import { checkForUpdate, clearPendingUpdate, readPendingUpdate } from '@/lib/updater';
 import { cn, formatBytes, withTimeout } from '@/lib/utils';
 import type { AppSettings, StorageUsage, ThemeMode } from '@/types/domain';
@@ -371,6 +372,9 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     } catch {
       /* 忽略 */
     }
+    // 0.8.1：从工作台返回书架时，帷幕是上一页盖上的；这一页挂载后由这里抹掉。
+    // 放在 pathname 变化里而不是只在挂载时，是为了兜住「帷幕盖上了但导航没成功」。
+    veilOut(0);
   }, [pathname]);
 
   // 0.5.7：启动 6 秒后检查一次新版本（本地 1 小时节流），发现新版用一条 toast 提示。  // 这里只引轻量的 updater 模块，不引入任何弹窗组件，避免拖慢首屏。
@@ -1354,8 +1358,12 @@ function SidebarContent({
         ))}
       </div>
 
-      {/* 底部：设置 + 存储 + 版本 */}
-      <div className={cn('mt-auto grid gap-1.5 pt-3', compact ? 'px-0' : 'px-0')}>
+      {/* 底部：设置 + 存储 + 版本
+          0.8.1：「设置」这一项被铜色指示条压住了左边半个圆角 —— 上面那组导航在
+          `pl-[7px] pr-1` 的滚动容器里，指示条正好落在留出来的窄缝中；这一块原来
+          没有那道缝，指示条就画进了「设置」自己的背景里，看着像两条东西叠在一起。
+          补上同样的内距，两边几何对齐。 */}
+      <div className={cn('mt-auto grid gap-1.5 pt-3 pl-[7px] pr-1')}>
         <div className="ps-hairline-x mb-1.5" />
         <NavLink
           item={SETTINGS_ITEM}

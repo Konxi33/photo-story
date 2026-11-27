@@ -921,6 +921,34 @@ html[data-motion='drift'] .ps-drift-slow {
   overflow-x: clip;
 }
 
+/* 0.8.1：项目工作台（/projects/[id]）不经过 AppShell，普通页面的 3D 转场管不到它，
+   所以「点卡片进项目」以前是一帧硬切。现在由两部分拼成一次过门：
+     · lib/page-veil 在点击时把一层帷幕盖上来，挂载后抹掉
+     · 下面这段让工作台自己从 1.016 倍收正、同时淡入 —— 镜头推近再落定
+   和 ps-page-next 一样只用 opacity + transform；fill-mode 用 backwards，
+   跑完不留下 transform，否则会变成 fixed 后代的包含块（0.5.5 那个浮层跑出屏幕的坑）。 */
+@keyframes ps-workbench-settle {
+  from {
+    opacity: 0;
+    transform: scale(1.016);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ps-workbench-enter {
+  animation: ps-workbench-settle 320ms var(--ease-out) backwards;
+  transform-origin: 50% 35%;
+}
+html[data-motion='minimal'] .ps-workbench-enter {
+  animation-duration: 190ms;
+}
+html[data-motion='off'] .ps-workbench-enter,
+html[data-motion-page='off'] .ps-workbench-enter {
+  animation: none;
+}
+
 /* ==========================================================================
  * 0.7.2 动效系统：滚动进场 / 内容错峰 / 卡片浮起 / 路由进度条
  *
@@ -1815,9 +1843,111 @@ html[data-sidebar='compact'] aside.ps-sidebar.ps-sidebar-hover [data-sidebar-lab
   object-fit: cover;
   display: block;
   opacity: 0;
-  transition: opacity 240ms linear;
+  /* 0.8.1：悬停放大只动这张图自己的 transform —— 方块位置是 JS 用 translate3d
+     摆的，改方块会跟惯性循环抢同一个属性，拖动时会一抖一抖。 */
+  transition: opacity 240ms linear, transform 260ms var(--ease-out);
   -webkit-user-drag: none;
   pointer-events: none;
+}
+
+/* 手指离开、墙停下来的时候，指针压着的那张微微推近一点，像用放大镜看底片 */
+.ps-wall-stage[data-moving='0'] .ps-wall-tile:hover .ps-wall-img {
+  transform: scale(1.045);
+}
+
+/* 键盘推墙时给个可聚焦的轮廓，否则 tabIndex=0 的舞台看不出被选中了 */
+.ps-wall-stage:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--copper) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* 缩放读数（1.32× 这样的百分比）做成扁一点的按钮 */
+.ps-wall-zoom {
+  padding: 0 9px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* ---- 0.8.1 放映：给客户看稿时只留纸页 ---- */
+.ps-present {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  background: #f2eee4;
+  color: #4a463d;
+  animation: ps-present-in 240ms var(--ease-out) backwards;
+}
+
+@keyframes ps-present-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ps-present-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 22px;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: #7c7768;
+}
+
+.ps-present-exit {
+  border: 1px solid rgba(120, 114, 99, 0.35);
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 11px;
+  color: #57523f;
+  background: transparent;
+  cursor: pointer;
+  transition: background 160ms linear, border-color 160ms linear;
+}
+
+.ps-present-exit:hover {
+  background: rgba(120, 114, 99, 0.1);
+  border-color: rgba(120, 114, 99, 0.5);
+}
+
+.ps-present-stage {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-items: center;
+  gap: 18px;
+  padding: 0 22px 10px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+@media (min-width: 1024px) {
+  .ps-present-stage {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ps-present-stage article {
+  box-shadow: 0 26px 60px -34px rgba(0, 0, 0, 0.55);
+}
+
+.ps-present-foot {
+  padding: 0 22px 14px;
+  text-align: center;
+  font-size: 11px;
+  color: #8a8578;
+}
+
+html[data-motion='off'] .ps-present {
+  animation: none;
 }
 
 .ps-wall-veil {

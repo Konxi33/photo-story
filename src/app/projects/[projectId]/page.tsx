@@ -44,6 +44,7 @@ import { pageHint } from '@/lib/export/blocks';
 import { scorePhoto } from '@/lib/score/dispatch';
 import { AssetRepository, KvRepository, PhotoRepository, ProjectRepository } from '@/lib/db';
 import { recallProject, rememberProject } from '@/lib/db/session-cache';
+import { veilIn, veilOut } from '@/lib/page-veil';
 import type {
   AiConfigPublic,
   AppSettings,
@@ -71,6 +72,16 @@ export default function WorkbenchPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
   const projectId = params.projectId;
+
+  /**
+   * 0.8.1：从书架点进来时，列表页先盖了一层帷幕（见 lib/page-veil）。
+   * 工作台挂载、首帧画完之后把帷幕抹掉，配合根节点上的 ps-workbench-enter
+   * 就是「镜头推进去、落定」。延迟一帧是为了让下面那排工具栏先完成布局，
+   * 否则抹掉帷幕的瞬间能看到内容从 0 高度展开。
+   */
+  useEffect(() => {
+    veilOut(60);
+  }, []);
 
   const [status, setStatus] = useState<LoadStatus>(() => (recallProject(projectId) ? 'ready' : 'loading'));
   const [project, setProject] = useState<Project | null>(() => recallProject(projectId));
@@ -903,6 +914,8 @@ export default function WorkbenchPage() {
   }, [photos, project?.exportSettings]);
 
   const handleBack = (): void => {
+    // 0.8.1：回书架也是「过门」——先盖帷幕，再跳，列表页的 AppShell 挂载后会抹掉它
+    veilIn();
     router.push(ROUTES.projects);
   };
 
@@ -967,7 +980,7 @@ export default function WorkbenchPage() {
   );
 
   return (
-    <div className="min-h-dvh bg-paper">
+    <div className="ps-workbench-enter min-h-dvh bg-paper">
       <AppHeader
         projectName={project.name}
         onBack={handleBack}

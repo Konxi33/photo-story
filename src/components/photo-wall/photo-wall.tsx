@@ -1,6 +1,10 @@
 'use client';
 
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Maximize2, Minimize2, RotateCcw, X } from 'lucide-react';
 import type { Photo } from '@/types/domain';
@@ -131,6 +135,9 @@ export function PhotoWall({
 }: PhotoWallProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [immersive, setImmersive] = useState(false);
+  /* 0.8.1：墙上再叠一层「观看缩放」——滑块决定的是常驻密度，这个只影响此刻看多近 */
+  const zoomRef = useRef(1);
+  const [zoom, setZoom] = useState(1);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const nodesRef = useRef<WallNode[]>([]);
@@ -639,9 +646,115 @@ export function PhotoWall({
     onOpen(index, tileEl.getBoundingClientRect());
   };
 
-  const resetPan = () => {
-    // 0.7.2：回到起点 = 回到「摆正中」的那一屏，而不是世界的左上角
+  /* --------------------------- 0.8.1 缩放与键盘 --------------------------- */
+
+  /**
+   * 缩放以「指针所在的那张照片」为锚点：换算成世界坐标比 (pan + m) / cell，
+   * 缩放后让同一个世界坐标仍落在 m 下面，照片就不会在脚下滑走。
+   * 密度滑块（props.tileBase）和这里的观看缩放是两件事，互不覆盖。
+   */
+  const applyZoom = useCallback((next: number, anchor?: { x: number; y: number }) => {
+    const clamped = Math.min(1.9, Math.max(0.55, next));
+    if (Math.abs(clamped - zoomRef.current) < 0.01) return;
+    const stage = stageRef.current;
+    const { w, h } = sizeRef.current;
+    const m = anchor ?? { x: w / 2, y: h / 2 };
+    const prevCell = tileRef.current + GAP;
+    zoomRef.current = clamped;
+    setZoom(clamped);
+
+    const narrow = stage ? stage.clientWidth > 0 && stage.clientWidth < NARROW_MAX : false;
+    const base = baseRef.current;
+    const tile = narrow
+      ? Math.max(60, Math.round(((base * TILE_NARROW) / TILE_WIDE) * clamped))
+      : Math.round(base * clamped);
+    if (Math.abs(tile - tileRef.current) < 0.5) return;
+    tileRef.current = tile;
+    for (const node of nodesRef.current) resizeNode(node, tile);
+
+    const ratio = (tile + GAP) / prevCell;
+    panRef.current = {
+      x: (panRef.current.x + m.x) * ratio - m.x,
+      y: (panRef.current.y + m.y) * ratio - m.y,
+    };
+    drawRef.current();
+    ensure();
+  }, [ensure]);
+
+  const resetView = () => {
+    zoomRef.current = 1;
+    setZoom(1);
+    const stage = stageRef.current;
+    const narrow = stage ? stage.clientWidth > 0 && stage.clientWidth < NARROW_MAX : false;
+    const tile = narrow
+      ? Math.max(84, Math.round((baseRef.current * TILE_NARROW) / TILE_WIDE))
+      : Math.round(baseRef.current);
+    tileRef.current = tile;
+    for (const node of nodesRef.current) resizeNode(node, tile);
     centerPan();
+    drawRef.current();
+    ensure();
+  };
+
+  /*
+   * 滚轮缩放要 preventDefault，而 React 的 onWheel 在根节点上是 passive 的，
+   * preventDefault 会被忽略（页面跟着滚）。所以这里自己挂一个 non-passive 监听。
+   */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('[data-wall-ui]')) return;
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const step = Math.exp(-e.deltaY * 0.0016);
+      applyZoom(zoomRef.current * step, {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [applyZoom]);
+
+  /** 方向键推墙、+/- 缩放、Home 回中、Esc 取消选择 */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 420 : 120;
+    let handled = true;
+    switch (e.key) {
+      case 'ArrowLeft':
+        panRef.current.x -= step;
+        break;
+      case 'ArrowRight':
+        panRef.current.x += step;
+        break;
+      case 'ArrowUp':
+        panRef.current.y -= step;
+        break;
+      case 'ArrowDown':
+        panRef.current.y += step;
+        break;
+      case '+':
+      case '=':
+        applyZoom(zoomRef.current * 1.12);
+        break;
+      case '-':
+      case '_':
+        applyZoom(zoomRef.current / 1.12);
+        break;
+      case '0':
+      case 'Home':
+        resetView();
+        break;
+      case 'Escape':
+        setSelection([]);
+        break;
+      default:
+        handled = false;
+    }
+    if (!handled) return;
+    e.preventDefault();
+    drawRef.current();
     ensure();
   };
 
@@ -653,12 +766,14 @@ export function PhotoWall({
         ref={stageRef}
         className="ps-wall-stage"
         role="application"
-        aria-label="照片墙，按住拖动可以一直滑下去"
+        tabIndex={0}
+        aria-label="照片墙，按住拖动可以一直滑下去；方向键推墙，加减号缩放"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onDoubleClick={onDoubleClick}
+        onKeyDown={onKeyDown}
       />
 
       {/* 0.7.2：这枚「按住拖动 · 松手滑行 · 双击看大图」的胶囊原来压在照片上，
@@ -699,7 +814,19 @@ export function PhotoWall({
       </div>
 
       <div className="ps-wall-tools" data-wall-ui="">
-        <button type="button" className="ps-wall-btn is-icon" aria-label="回到起点" onClick={resetPan}>
+        {/* 0.8.1：缩放读数做成可见的按钮 —— 滚轮改了近景之后，点它一次回到原尺度 */}
+        {zoom !== 1 && (
+          <button
+            type="button"
+            className="ps-wall-btn ps-wall-zoom"
+            aria-label="回到原尺度"
+            title="回到原尺度（快捷键 0）"
+            onClick={resetView}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
+        <button type="button" className="ps-wall-btn is-icon" aria-label="回到起点" onClick={resetView}>
           <RotateCcw size={14} strokeWidth={1.8} />
         </button>
         <button

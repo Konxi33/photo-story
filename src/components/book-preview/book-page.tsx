@@ -28,17 +28,23 @@ export function BookPage({
   node,
   number,
   zoom = 1,
+  present = false,
 }: {
   node?: PageNode;
   number: number;
   /** 纸页放大倍数：用 CSS zoom，保持排版比例不变 */
   zoom?: number;
+  /** 放映模式：纸页撑到整屏高度，不再受页面里那套 100vh-15rem 的约束 */
+  present?: boolean;
 }): React.JSX.Element {
   if (!node) {
     return (
       <div
         aria-hidden
-        className="hidden aspect-[210/297] w-full rounded-xl border border-dashed border-line/40 lg:block"
+        className={cn(
+          'aspect-[210/297] w-full rounded-xl border border-dashed border-line/40',
+          present ? 'max-w-[calc((100vh-9rem)*0.707)]' : 'hidden lg:block',
+        )}
       />
     );
   }
@@ -48,9 +54,11 @@ export function BookPage({
       <article
         key={number}
         className={cn(
-          'ps-enter relative flex aspect-[210/297] h-auto w-full max-w-full flex-col overflow-hidden rounded-xl border border-line/60',
+          'ps-enter relative flex aspect-[210/297] flex-col overflow-hidden rounded-xl border border-line/60',
           // 让整张纸页落在视口里：高度跟着窗口走，宽度由纸的比例反推
-          'lg:h-[calc(100vh-15rem)] lg:max-h-[780px] lg:w-auto',
+          present
+            ? 'h-[86vh] max-h-none w-auto max-w-none'
+            : 'h-auto w-full max-w-full lg:h-[calc(100vh-15rem)] lg:max-h-[780px] lg:w-auto',
           'bg-[#fbfaf7] px-[7%] py-[6%] text-[#1b1a17] shadow-[0_18px_44px_-30px_rgba(0,0,0,0.5)]',
         )}
         style={{ '--ps-delay': '0ms' } as React.CSSProperties}

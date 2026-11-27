@@ -64,6 +64,7 @@ import {
 import { AssetRepository, ProjectRepository } from '@/lib/db';
 import { repairInterruptedPhotos } from '@/lib/db/repair';
 import { getStorageUsage } from '@/lib/storage/usage';
+import { veilIn } from '@/lib/page-veil';
 import { cn, formatBytes, formatDate, randomId } from '@/lib/utils';
 import { DOMAIN_SCHEMA_VERSION } from '@/types/domain';
 import type { Project, ProjectSummary, StorageUsage } from '@/types/domain';
@@ -73,6 +74,17 @@ const LOAD_TIMEOUT_MS = 5000;
 
 export default function ProjectsPage() {
   const router = useRouter();
+
+  /**
+   * 0.8.1：所有「进项目」的入口都走这一个函数。
+   * 项目工作台不经过 AppShell，所以拿不到普通页面的 3D 转场；这里先把帷幕
+   * 盖上再跳，工作台挂载后再抹掉。veilIn 只加一层 DOM、不拦默认行为，所以
+   * 卡片本身的 Link 语义（中键、Ctrl+点击）都还在。
+   */
+  const openProject = (id: string, projectName?: string): void => {
+    veilIn(projectName);
+    router.push(ROUTES.project(id));
+  };
 
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [usage, setUsage] = useState<StorageUsage | null>(null);
@@ -141,7 +153,7 @@ export default function ProjectsPage() {
       await ProjectRepository.create(project);
       setName('');
       setOpen(false);
-      router.push(ROUTES.project(project.id));
+      openProject(project.id, project.name);
     } catch (error) {
       toast.error('创建项目失败', { description: (error as Error).message });
     } finally {
@@ -215,13 +227,13 @@ export default function ProjectsPage() {
         toast.success('项目包已打开', {
           description: result.projectName + ' · ' + result.photoCount + ' 张照片',
         });
-        router.push(ROUTES.project(result.projectId));
+        openProject(result.projectId, result.projectName);
       } else {
         const text = await file.text();
         const result = await importProjectBackup(text);
         await refresh();
         toast.success('导入成功', { description: '已恢复 ' + result.photoCount + ' 张照片' });
-        router.push(ROUTES.project(result.projectId));
+        openProject(result.projectId);
       }
     } catch (error) {
       toast.error('导入失败', { description: (error as Error).message });
@@ -382,7 +394,7 @@ export default function ProjectsPage() {
                 // 0.7.5：第一本占两格、封面更宽 —— 书架不该是等大的九宫格，
                 // 最近在做的这一本应该一眼就能认出来。
                 featured={index === 0}
-                onOpen={() => router.push(ROUTES.project(project.id))}
+                onOpen={() => openProject(project.id, project.name)}
                 onRename={() => {
                   setRenameTarget(project);
                   setRenameName(project.name);
@@ -525,6 +537,7 @@ function ProjectCard({
           以前靠 onClick 跳转就会「点项目进不去」；链接由浏览器兜底，点了就一定能进。 */}
       <Link
         href={ROUTES.project(project.id)}
+        onClick={() => veilIn(project.name)}
         aria-label={`打开项目 ${project.name}`}
         className="block cursor-pointer rounded-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/40"
       >
