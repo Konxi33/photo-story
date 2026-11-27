@@ -593,7 +593,8 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
     document.documentElement.dataset.sidebar = compactNext ? 'compact' : 'expanded';
     // 0.7.3：镜像到 cookie，下一次打开服务端就能把密度直接画进 HTML（省掉一次水合重画）
     mirrorSidebarCookie(compactNext);
-  }, [compact, hoverSidebar]);
+    // collapsed 也算依赖：compact 由它推出来，单独变的时候要重算一次才一致
+  }, [compact, hoverSidebar, collapsed]);
 
   /**
    * 0.8.0：水合之后才补「记住的折叠状态」。
