@@ -106,6 +106,8 @@ export function buildDocument(params: BuildDocumentParams): Document {
         rowsPerPage: grid.rowsPerPage,
         rowGapPt: grid.rowGapPt,
         contentWidthCm: exportContentCm(settings),
+        // 0.8.4：日期跟「封面印日期」同一个开关走。
+        showDate: settings.showDate !== false,
         // 0.8.3：总览页一律不在末尾补分页符。
         // 原来是「没有章节时才补」，结果总览 → 第一张照片时，
         // 总览尾部的分页符 + 照片页自己的 pageBreakBefore 叠成两次分页，
@@ -167,6 +169,9 @@ export function buildDocument(params: BuildDocumentParams): Document {
         image,
         settings,
         contentCm,
+        // 0.8.4：行带规划要拿版心高当上限，否则横构图的照片会把一页撑破、
+        // 配文被挤到下一页（用户投诉的「图和字不在同一页」）
+        contentHeightCm: fullHeightCm,
         heading: opts.heading,
         pageBreakBefore: !opts.isFirst,
       });

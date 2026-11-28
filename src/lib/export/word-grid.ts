@@ -36,6 +36,7 @@ import { WORD_COLORS, WORD_FONTS, toDocxColor } from '@/config/wordLayout';
 import type { ExportSettings, Photo, PhotoAnalysis, Technique } from '@/types/domain';
 
 import { type BlockContext, buildPhotoSection, renderBlock } from './body';
+import { type BandItemPlan, planPageBands } from './bands';
 import { type PhotoBlockId, resolveBlocks } from './blocks';
 import { layoutOrder } from './layout';
 import { buildRunStyle } from './fonts';
@@ -52,7 +53,6 @@ import {
   planLayoutPage,
   resolveLayout,
   type ItemPlan,
-  type LayoutItem,
   type PageLayout,
 } from './layout';
 
@@ -850,141 +850,22 @@ export interface CanvasFlowParams {
   settings: ExportSettings;
   /** 版心宽度（cm） */
   contentCm: number;
+  /** 版心高度（cm）：行带规划要拿它当上限，否则图会撑破一页 */
+  contentHeightCm?: number;
   /** 页头（紧凑章头之类），画在第一条行带上面 */
   heading?: (Paragraph | Table)[];
   /** 这一页要不要另起一页 */
   pageBreakBefore?: boolean;
 }
 
+/** 紧凑章头压在同一页顶端时占掉的高度（cm），约等于「图注 + 章名 + 分隔线」 */
+const CANVAS_HEADING_CM = 3.6;
+
 /** 画布流式不按格子高度裁字：给一个「无限高」，fitText/fitTechnique/fitGroup 就原样返回 */
 const NO_CLIP_CM = 999;
 
-/** 一段列区间：占哪几列、里面自上而下叠着哪些块 */
-interface CanvasRange {
-  col: number;
-  span: number;
-  ids: PhotoBlockId[];
-}
-
-/** 一条行带：若干条互不重叠的列区间 */
-interface CanvasBand {
-  ranges: CanvasRange[];
-}
-
-/** 一条行带里的一个单元格（filler = 用户没摆东西的空白列） */
-interface CanvasCell {
-  col: number;
-  span: number;
-  ids: PhotoBlockId[];
-  filler: boolean;
-}
-
-/** 正文类块：窄于 4/12（约 5.5cm）时中文一行放不下几个字，要保底 */
-const LONG_TEXT_IDS: PhotoBlockId[] = ['story', 'technique', 'advice', 'score', 'params', 'alt'];
-
 /** 文字格的内边距（twips，108 ≈ 1.9mm）：让正文不贴着图片/表线 */
 const CANVAS_GUTTER_TWIPS = 108;
-
-function canvasFloorCols(cell: CanvasCell): number {
-  if (cell.filler || cell.ids.length === 0) return 0;
-  if (cell.ids.includes('image')) return 4;
-  return Math.max(...cell.ids.map((id) => {
-    if (id === 'index') return 1;
-    if (LONG_TEXT_IDS.includes(id)) return 4;
-    return 2;
-  }));
-}
-
-const sameRanges = (a: CanvasRange[], b: CanvasRange[]): boolean =>
-  a.length === b.length &&
-  a.every((range, index) => range.col === b[index].col && range.span === b[index].span);
-
-/**
- * 把画布切成行带。
- *
- * 切缝取所有块的 row 与 row+rowSpan（外加 0 和 rows）；相邻两条缝之间，
- * 覆盖它的块集合是稳定的 —— 这些块的列区间必然互不重叠（normalizeLayout
- * 已经去掉重叠的块），所以一条横缝天然就是「一行单元格」。
- * 若干条横缝的列区间分布完全一致时并成一条带，右栏竖着堆的块就落在同一格里。
- */
-function canvasBands(items: LayoutItem[], rows: number): CanvasBand[] {
-  const cuts = new Set<number>([0, rows]);
-  for (const item of items) {
-    cuts.add(Math.max(0, Math.min(rows, item.row)));
-    cuts.add(Math.max(0, Math.min(rows, item.row + item.rowSpan)));
-  }
-  const points = [...cuts].sort((a, b) => a - b);
-
-  const slabs: CanvasRange[][] = [];
-  for (let i = 0; i < points.length - 1; i += 1) {
-    const top = points[i];
-    const bottom = points[i + 1];
-    if (bottom <= top) continue;
-    const active = items
-      .filter((item) => item.row <= top && item.row + item.rowSpan >= bottom)
-      .sort((a, b) => a.col - b.col);
-    // 整段空白行（用户摆得比较松）：不占版面，反正 Word 靠段落间距
-    if (active.length === 0) continue;
-    slabs.push(active.map((item) => ({ col: item.col, span: item.colSpan, ids: [item.id] })));
-  }
-
-  const bands: CanvasBand[] = [];
-  for (const slab of slabs) {
-    const last = bands[bands.length - 1];
-    if (last && sameRanges(last.ranges, slab)) {
-      slab.forEach((range, index) => {
-        for (const id of range.ids) {
-          if (!last.ranges[index].ids.includes(id)) last.ranges[index].ids.push(id);
-        }
-      });
-      continue;
-    }
-    bands.push({ ranges: slab.map((range) => ({ ...range, ids: [...range.ids] })) });
-  }
-  return bands;
-}
-
-/** 把一条行带补成「整 12 列」：左右和中间的空白列都补空单元格 */
-function canvasCells(band: CanvasBand, cols: number): CanvasCell[] {
-  const cells: CanvasCell[] = [];
-  let cursor = 0;
-  for (const range of band.ranges) {
-    if (range.col > cursor) {
-      cells.push({ col: cursor, span: range.col - cursor, ids: [], filler: true });
-    }
-    cells.push({ col: range.col, span: range.span, ids: range.ids, filler: false });
-    cursor = range.col + range.span;
-  }
-  if (cursor < cols) {
-    cells.push({ col: cursor, span: cols - cursor, ids: [], filler: true });
-  }
-  return cells;
-}
-
-/**
- * 最小宽度保底：某格窄于下限时，先从空白格匀（空白格压没了也不影响阅读），
- * 再从还有余量的格子里匀，**总和仍然是 cols（12）**，版面不会被撑宽。
- */
-function balanceSpans(cells: CanvasCell[], cols: number): number[] {
-  const spans = cells.map((cell) => Math.max(0, Math.min(cols, cell.span)));
-  const floors = cells.map((cell) => canvasFloorCols(cell));
-  for (let i = 0; i < spans.length; i += 1) {
-    let need = floors[i] - spans[i];
-    if (need <= 0) continue;
-    const donors = spans
-      .map((span, j) => ({ j, slack: cells[j].filler ? span : Math.max(0, span - floors[j]) }))
-      .filter((donor) => donor.j !== i && donor.slack > 0)
-      .sort((a, b) => b.slack - a.slack);
-    for (const donor of donors) {
-      if (need <= 0) break;
-      const take = Math.min(donor.slack, need);
-      spans[donor.j] -= take;
-      spans[i] += take;
-      need -= take;
-    }
-  }
-  return spans;
-}
 
 /** 画布里的一个块：高度给「无限大」，于是 cellContent 只按宽度排版、不裁字 */
 function canvasPlan(id: PhotoBlockId, widthCm: number): ItemPlan {
@@ -992,6 +873,24 @@ function canvasPlan(id: PhotoBlockId, widthCm: number): ItemPlan {
     item: { id, col: 0, row: 0, colSpan: 1, rowSpan: 1 },
     widthCm,
     heightCm: NO_CLIP_CM,
+    fontPt: 10.5,
+    needCm: 0,
+    fits: true,
+    truncated: false,
+    shrunk: false,
+  };
+}
+
+/**
+ * 照片块：高度必须给**规划算出来的值**，不能再给「无限大」。
+ * 给了无限大，Word 就按列宽把图铺满，横构图的照片会撑破一页 —— 那正是
+ * 「一页只放得下一张图、文字被挤到下一页」的成因。
+ */
+function imagePlan(widthCm: number, heightCm: number): ItemPlan {
+  return {
+    item: { id: 'image', col: 0, row: 0, colSpan: 1, rowSpan: 1 },
+    widthCm,
+    heightCm: Math.max(0.8, heightCm),
     fontPt: 10.5,
     needCm: 0,
     fits: true,
@@ -1016,67 +915,93 @@ function canvasBreak(): Paragraph {
   });
 }
 
-/** 行带之间的小间距：不只是隔开两张表，也让上下两段内容不贴在一起（约 6pt） */
-function canvasGap(): Paragraph {
-  return new Paragraph({
-    spacing: { before: 0, after: 120, line: 20, lineRule: LineRuleType.EXACT },
-    children: [],
-  });
-}
-
 /**
  * 一页照片（画布流式）。document.ts 只在「用户在排版台改过位置」时走这里，
  * 默认预设仍然走 buildSingleFlowSection，保证默认流程零回归。
+ *
+ * 0.8.4：**整页一张表**，一条行带一行、行内 `cantSplit`。
+ * 以前是「一条行带一张表」，表与表之间夹一个空段落，Word 完全可以在那儿分页 ——
+ * 于是照片在这一页、它的正文和图注翻到下一页（用户原话「每一张图片和配的文字都不在
+ * 同一页」）。改成一张表之后，行内不可分页，照片和它的配文结构上就不可能被拆开；
+ * 行高也按 bands.ts 的真实测量给，装不下时先缩图再降字号再让块，不会撑破一页。
  */
 export function buildCanvasFlowSection(params: CanvasFlowParams): (Paragraph | Table)[] {
   const { photo, index, image, settings, contentCm, heading, pageBreakBefore } = params;
   const layout = resolveLayout(settings);
   const analysis = photo.analysis;
 
-  // 标题已经印在页头时，图注再印一遍同样的字就是重复（跟 buildSingleFlowSection 同一口径）
+  // 标题已经印在图上时，图注再印一遍同样的字就是重复（跟 buildSingleFlowSection 同一口径）
   const hasTitle =
     Boolean(analysis?.title?.trim()) && layout.items.some((item) => item.id === 'title');
-  const items: LayoutItem[] = hasTitle
-    ? layout.items.filter((item) => item.id !== 'caption')
-    : layout.items;
-  if (items.length === 0) return [];
+  const pageLayout: PageLayout = hasTitle
+    ? { ...layout, items: layout.items.filter((item) => item.id !== 'caption') }
+    : layout;
+  if (pageLayout.items.length === 0) return [];
 
+  const openSettings: ExportSettings = { ...settings, includeScoreDetail: true };
   const gridParams: GridSectionParams = {
     photo,
     index,
     image,
-    // 内容出不出现由画布决定：旧布尔开关一律放开，免得「拖上纸却被开关吞掉」
-    settings: { ...settings, includeScoreDetail: true },
+    settings: openSettings,
     contentCm,
     contentHeightCm: NO_CLIP_CM,
   };
 
   const out: (Paragraph | Table)[] = [];
-  if (heading && heading.length > 0) out.push(...heading);
-  if (pageBreakBefore && (!heading || heading.length === 0)) out.push(canvasBreak());
+  const head = heading ?? [];
+  if (head.length > 0) out.push(...head);
+  if (pageBreakBefore && head.length === 0) out.push(canvasBreak());
 
   const cols = Math.max(1, layout.cols);
   const totalTwips = Math.round(contentCm * 567);
 
-  for (const band of canvasBands(items, layout.rows)) {
-    const cells = canvasCells(band, cols);
-    const spans = balanceSpans(cells, cols);
+  // 可用高度 = 版心高 − 页头（紧凑章头压在同一页顶端时）
+  const headingCm = head.length > 0 ? CANVAS_HEADING_CM : 0;
+  const availableCm = Math.max(6, (params.contentHeightCm ?? 24.7) - headingCm);
 
-    // 宽度被匀成 0 的空白格直接不画（宽度总和仍是整 12 列）
-    const planned = cells
-      .map((cell, i) => ({ cell, span: spans[i] }))
-      .filter((entry) => entry.span > 0);
+  const aspect =
+    image && image.width > 0 && image.height > 0
+      ? image.width / image.height
+      : photo.width > 0 && photo.height > 0
+        ? photo.width / photo.height
+        : 3 / 2;
 
-    const rowCells = planned.map(({ cell, span }) => {
-      // 图片独占一格：给它整列宽度、零边距，图不会顶出格子
-      const imageOnly = cell.ids.length === 1 && cell.ids[0] === 'image';
-      // 文字格留一点左右余白（约 1.9mm），免得正文紧贴图片/表格边线
+  const plan = planPageBands({
+    photo,
+    index,
+    settings: openSettings,
+    layout: pageLayout,
+    contentCm,
+    contentHeightCm: availableCm,
+    aspect,
+  });
+  if (plan.bands.length === 0) return out;
+
+  const rows = plan.bands.map((band) => {
+    // 同一格（同列区间、同跨度）里的块竖着叠
+    const grouped = new Map<string, BandItemPlan[]>();
+    for (const item of band.items) {
+      const key = `${item.col}:${item.span}`;
+      const list = grouped.get(key);
+      if (list) list.push(item);
+      else grouped.set(key, [item]);
+    }
+
+    const cells = [...grouped.values()].map((list) => {
+      const span = list[0].span;
+      const imageOnly = list.length === 1 && list[0].id === 'image';
+      // 文字格留一点左右余白，免得正文紧贴图片边缘
       const gutterCm = imageOnly ? 0 : (CANVAS_GUTTER_TWIPS * 2) / 567;
-      const widthCm = Math.max(1, (span / cols) * contentCm - gutterCm);
-      const children: (Paragraph | Table)[] =
-        cell.ids.length === 0
-          ? [canvasSpacer()]
-          : cell.ids.flatMap((id) => cellContent(canvasPlan(id, widthCm), gridParams));
+      const widthCm = Math.max(1, list[0].widthCm - gutterCm);
+      const children = list.flatMap((item) =>
+        cellContent(
+          item.id === 'image'
+            ? imagePlan(widthCm, item.imageHeightCm)
+            : canvasPlan(item.id, widthCm),
+          gridParams,
+        ),
+      );
       return new TableCell({
         width: { size: Math.round((span / cols) * totalTwips), type: WidthType.DXA },
         columnSpan: span > 1 ? span : undefined,
@@ -1089,17 +1014,23 @@ export function buildCanvasFlowSection(params: CanvasFlowParams): (Paragraph | T
       });
     });
 
-    out.push(
-      new Table({
-        layout: TableLayoutType.FIXED,
-        width: { size: totalTwips, type: WidthType.DXA },
-        borders: NO_BORDERS,
-        rows: [new TableRow({ children: rowCells })],
-      }),
-    );
-    // 两张表之间必须夹一个段落，否则 Word 会当成一张表，列宽按最后一行算
-    out.push(canvasGap());
-  }
+    // 行高 = 内容高 + 这一带下面的间距（不是 EXACT：测量略微偏小也不会裁字）
+    const rowCm = Math.max(0.4, band.heightCm + band.gapAfterCm);
+    return new TableRow({
+      cantSplit: true,
+      height: { value: Math.round(rowCm * 567), rule: HeightRule.ATLEAST },
+      children: cells,
+    });
+  });
+
+  out.push(
+    new Table({
+      layout: TableLayoutType.FIXED,
+      width: { size: totalTwips, type: WidthType.DXA },
+      borders: NO_BORDERS,
+      rows,
+    }),
+  );
 
   return out;
 }

@@ -277,8 +277,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     headingReserveCm = GRID_HEADING_RESERVE_CM,
     chapter?: { no: number; title: string; note?: string },
   ): string => {
-    // 积木版：几何、字号、截断全由 planLayoutPage 决定，这里只负责把格子画出来。
+    // 积木版：几何、字号、截断全由 planPageBands 决定（0.8.4 改成行带排版），
+    // 这里只负责把格子画出来。把真实像素宽高传进去，横构图的照片才知道自己能长多高。
     if (useGrid) {
+      const dims = encoded.get(photo.id);
+      folioSeq += 1;
       return buildGridPhotoPage({
         photo,
         index,
@@ -288,6 +291,9 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
         contentHeightCm: layout.contentH / 10,
         reservedCm: noBreak ? headingReserveCm : 0,
         breakBefore: !noBreak,
+        imgW: dims?.w,
+        imgH: dims?.h,
+        pageNo: folioSeq,
       });
     }
 
@@ -430,8 +436,10 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     bodyParts.push(prosePage('后记', '后记', settings.afterword));
   }
 
-  // 总览页：3 或 4 列缩略图墙，一页之内按张数自动分列
-  const ovCols = items(photos).length > 12 ? 4 : 3;
+  // 总览页：缩略图墙。列数按张数走（0.8.4）：四张以内用两列大图，
+  // 否则三列（以前固定 3 列，两张照片时右半页全空，像没排完）。
+  const ovCount = items(photos).length;
+  const ovCols = ovCount <= 4 ? 2 : ovCount > 12 ? 4 : 3;
   // 缩略图下面的标题按真实字宽先量再缩（列宽 = (版心 - 列间距) / 列数）
   const ovCellW = (layout.contentW - (ovCols - 1) * 4) / ovCols;
   const ovTitleW = Math.max(10, ovCellW - 3.2);
@@ -445,13 +453,14 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
          <div class="ov-grid cols-${ovCols}">
            ${items(photos)
              .map(
-               ({ photo }, index) => {
+               ({ photo }) => {
                  const small = thumbs.get(photo.id) ?? null;
                  const ovTitle = fitOneLine(photo.analysis?.title || photo.fileName, ovTitleW, bodyFont.css, 8.5);
                  return `
              <figure class="ov-cell">
                ${small ? `<img src="${small}" alt="">` : '<div class="ov-ph"></div>'}
-               <figcaption>${settings.showIndex === false ? '' : `<b>${pad2(index + 1)}</b>`}${escapeHtml(ovTitle)}</figcaption>
+               
+                <figcaption>${escapeHtml(ovTitle)}</figcaption>
              </figure>`;
                },
              )
@@ -520,6 +529,12 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     --ink: ${tint.ink};
     --ink-soft: ${tint.inkSoft};
     --line: ${tint.line};
+    /* 0.8.4：线条与浅底由墨色混出来，而不是写死 var(--hairline)。
+       写在米白纸上时 var(--hairline) 几乎看不见，用户说「有一些方框它都直接不显示、
+       没有那种线条框起来的秩序感」——就是这些框在浅纸上糊掉了。 */
+    --hairline: color-mix(in srgb, var(--ink) 26%, var(--paper));
+    --paper-soft: color-mix(in srgb, var(--ink) 4%, var(--paper));
+    --paper-sink: color-mix(in srgb, var(--ink) 7%, var(--paper));
     /* 0.8.3：纸张几何也做成变量，页面盒子与版心共用同一套数字，不会两处写错 */
     --paper-w: ${paperW}mm;
     --paper-h: ${paperH}mm;
@@ -546,6 +561,8 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   /* 总览与卷首语可能超过一页（照片多、文字长），这两类允许自然长高，
      其余页面固定一页高，纸色才能铺满、翻页位置也稳定。 */
   .page.ov, .page.prose { height: auto; min-height: var(--paper-h); }
+  /* 总览页：标题在顶、缩略图墙在中间的空白里居中（张数少的时候不再贴着头顶） */
+  .page.ov { display:flex; flex-direction:column; }
   .page.break { break-before: page; }
   .page.blank { break-before: page; }
   .cover { display:flex; flex-direction:column; justify-content:flex-start;
@@ -557,28 +574,28 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     font-variant-numeric: tabular-nums; }
   .cover h1 { font-size: 27pt; margin: 0; letter-spacing:.02em; line-height:1.25; font-weight:600; }
   .sub { color:#6b6b6b; font-size:12pt; margin:10px 0 0; }
-  .meta { color:#8a8a8a; font-size:10.5pt; margin-top:22px; }
+  .meta { color:var(--ink-soft); font-size:10.5pt; margin-top:22px; }
   .rule { width:40mm; height:1px; background:#d8d4cc; margin:12px auto 18px; }
   .rule.short { width:34mm; margin:14px auto; }
   .rule.left { margin:9mm 0 6mm; }
-  .idx { text-align:center; color:#8a8a8a; font-size:10pt; margin:0 0 4px; }
+  .idx { text-align:center; color:var(--ink-soft); font-size:10pt; margin:0 0 4px; }
   h2 { text-align:center; font-size:18pt; margin:0; font-weight:600; letter-spacing:.02em; }
   figure { margin: 14px 0 10px; text-align:center; break-inside: avoid; }
   figure img { max-width:100%; max-height: ${figMaxH}mm; object-fit:contain; }
   /* 0.5.5：图注左对齐、离图约 5mm（原来居中且贴图，像说明书不像画册） */
-  .cap { text-align:left; font-size:8.5pt; color:#8a8a8a; margin:1.8mm 0 5mm; line-height:1.45;
+  .cap { text-align:left; font-size:8.5pt; color:var(--ink-soft); margin:1.8mm 0 5mm; line-height:1.45;
     font-variant-numeric: tabular-nums; }
   .story { font-size:11pt; line-height:1.85; text-align:justify; text-indent:2em; margin:0 0 12px; }
   .techs { margin: 4px 0 10px; }
   .tech { display:flex; gap:8px; font-size:10.5pt; line-height:1.6; margin-bottom:4px; break-inside: avoid; }
   .tech span { flex:0 0 3em; color:#6b6b6b; font-weight:600; }
-  .tech p { margin:0; color:#3a3a3a; }
+  .tech p { margin:0; color:var(--ink); }
   .tags { text-align:center; font-size:10pt; color:#6b6b6b; margin:10px 0 0; }
   .exif { text-align:center; font-size:9pt; color:#6b6b6b; margin:8px 0 0;
     font-variant-numeric: tabular-nums; }
   .category { text-align:center; font-size:10pt; color:#6b6b6b; margin:10px 0 0; }
   .mood { text-align:center; font-size:10pt; color:#6b6b6b; margin:4px 0 0; }
-  .alt { text-align:center; font-size:8.5pt; color:#8a8a8a; margin:4px 0 0; }
+  .alt { text-align:center; font-size:8.5pt; color:var(--ink-soft); margin:4px 0 0; }
 
   .chapter-break { display:flex; flex-direction:column; align-items:center; justify-content:center;
     min-height: ${coverMinH}mm; text-align:center; break-before: page; }
@@ -586,7 +603,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
      否则 DOM 里量到的高度比 inlineHeadingHeightCm 算出来的少 7mm 左右，
      网格页就会多留一块白、或者反过来被顶到下一页。 */
   .chapter-inline { break-before: page; padding-top: 2mm; margin-bottom: 6mm; display: flow-root; }
-  .chapter-no { margin:0; font-size:10pt; letter-spacing:.32em; color:#8a8a8a; }
+  .chapter-no { margin:0; font-size:10pt; letter-spacing:.32em; color:var(--ink-soft); }
   .chapter-name { margin:10px 0 0; font-size:26pt; font-weight:600; letter-spacing:.04em; }
   .chapter-inline .chapter-name { font-size:17pt; }
   .chapter-note { margin:10px 0 0; font-size:11pt; color:#6b6b6b; }
@@ -597,46 +614,53 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .ov-kicker { font-size:7.5pt; letter-spacing:.32em; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
   .ov-title { margin: 0; font-size:16pt; text-align:left; letter-spacing:.02em; }
   .ov-count { margin-left:auto; font-size:8pt; color:var(--ink-soft); }
-  .ov-grid { display:grid; gap: 5mm 4mm; margin-top: 0; align-items:start; }
+  .ov-grid { display:grid; gap: 5mm 4mm; margin:auto 0; align-items:start; }
+  .ov-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
   .ov-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
   .ov-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
   .ov-cell { margin:0; break-inside: avoid; }
-  .ov-cell img, .ov-ph { width:100%; aspect-ratio: 3 / 2; object-fit: cover; background:#f2efe9; display:block; }
+  .ov-cell img, .ov-ph { width:100%; aspect-ratio: 3 / 2; object-fit: cover; background:var(--paper-soft); display:block; }
   .ov-cell figcaption { margin-top:1.8mm; font-size:8.5pt; color:var(--ink-soft); text-align:left;
     overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
   .ov-cell figcaption b { font-weight:400; color:var(--ink); margin-right:2mm; }
 
   .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 0 12px; }
-  .chip { border:1px solid #e6e2d9; background:#faf8f4; border-radius:4px;
-    padding:2px 7px; font-size:9pt; color:#3a3a3a; }
-  .chip b { color:#8a8a8a; font-weight:400; margin-right:5px; }
-  .module { border:1px solid #e6e2d9; background:#faf8f4; border-radius:6px;
+  .chip { border:1px solid var(--hairline); background:var(--paper-soft); border-radius:4px;
+    padding:2px 7px; font-size:9pt; color:var(--ink); }
+  .chip b { color:var(--ink-soft); font-weight:400; margin-right:5px; }
+  .module { border:1px solid var(--hairline); background:var(--paper-soft); border-radius:6px;
     padding:8px 10px; margin:0 0 10px; break-inside: avoid; }
   .score { display:flex; align-items:center; gap:14px; }
   .score-num { font-size:24pt; font-weight:600; line-height:1; white-space:nowrap; }
-  .score-num small { font-size:8pt; color:#8a8a8a; font-weight:400; margin-left:3px; }
+  .score-num small { font-size:8pt; color:var(--ink-soft); font-weight:400; margin-left:3px; }
   .score-grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:3px 16px; }
   .bar { display:grid; grid-template-columns:2.6em 1fr 2.2em; align-items:center;
     gap:6px; font-size:8.5pt; color:#6b6b6b; }
-  .bar i { display:block; height:3px; background:#e6e2d9; border-radius:2px; overflow:hidden; }
+  .bar i { display:block; height:3px; background:var(--hairline); border-radius:2px; overflow:hidden; }
   .bar em { display:block; height:100%; background:#9a958a; }
-  .bar u { text-decoration:none; text-align:right; color:#3a3a3a; font-variant-numeric: tabular-nums; }
+  .bar u { text-decoration:none; text-align:right; color:var(--ink); font-variant-numeric: tabular-nums; }
   .advice { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin:0 0 10px; }
-  .advice .card { border:1px solid #e6e2d9; background:#faf8f4; border-radius:6px; padding:7px 9px;
+  .advice .card { border:1px solid var(--hairline); background:var(--paper-soft); border-radius:6px; padding:7px 9px;
     break-inside: avoid; }
-  .card-title { margin:0 0 4px; font-size:8.5pt; letter-spacing:.08em; color:#8a8a8a; }
-  .card-line { margin:0 0 2px; font-size:9pt; line-height:1.5; color:#2a2a2a; }
+  .card-title { margin:0 0 4px; font-size:8.5pt; letter-spacing:.08em; color:var(--ink-soft); }
+  .card-line { margin:0 0 2px; font-size:9pt; line-height:1.5; color:var(--ink); }
 
-  /* 0.6.0 积木排版：一页 = 一张 12 列 × 24 行的画布，每个积木绝对定位在格子上。
-     0.8.3：外层 .gpage-sheet 是一张纸（纸色铺满 + 页边距），内层 .gpage 保持版心坐标，
-     所以坐标不用跟着页边距改一行；break 由外层 .page 负责。 */
+  /* 0.8.4 积木排版：一页 = 若干「行带」，带高按内容真实高度算，带内按列并排。
+     以前是 12×24 等分格子绝对定位：图片在自己的格子里垂直居中，格子又比图高一截，
+     于是标题与照片之间、照片与图注之间各空一大块，页底再剩 1/3 白 —— 用户说的「杂乱」
+     就是这个。外层 .gpage-sheet 是一张纸（纸色铺满 + 页边距），内层 .gpage 只管版心。 */
   .gpage-sheet { overflow: hidden; }
-  .gpage { position: relative; overflow: hidden; break-inside: avoid; }
+  .gpage { display:flex; flex-direction:column; overflow:hidden; break-inside: avoid; position:relative; }
   .gpage:last-child { break-after: auto; }
-  .gitem { position:absolute; overflow:hidden; }
+  .gband { display:flex; align-items:flex-start; column-gap:3.6mm; break-inside:avoid; }
+  .gcell { display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+  .gcell-fig { align-items:center; justify-content:center; }
+  .gitem { min-height:0; }
   .gitem-text { padding:0.4mm 0.6mm; }
-  .gitem figure { margin:0; height:100%; display:flex; align-items:center; justify-content:center; }
-  .gitem figure img { max-width:100%; max-height:100%; object-fit:contain; }
+  .gitem-fig { display:flex; align-items:center; justify-content:center; }
+  .gitem figure { margin:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .gitem figure img { max-width:100%; max-height:100%; object-fit:contain;
+    border:0.2mm solid var(--hairline); }
   /* 0.8.3：圆角在积木路径也生效（以前只有竖排版照片页有），封面/总览不跟它走 */
   .gpage figure img, .gpage .gph { border-radius: var(--photo-radius, 0); }
   .gph { width:100%; height:100%; background: var(--line); }

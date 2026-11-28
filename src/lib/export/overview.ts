@@ -43,6 +43,12 @@ export interface OverviewParams {
   rowsPerPage?: number;
   /** 行间距（pt） */
   rowGapPt?: number;
+  /**
+   * 要不要印生成日期（0.8.4）。
+   * 用户实测：关掉「封面印日期」之后，总览页顶上还挂着「生成于 2026-11-28」，
+   * 看起来像单独放出的一页日期 —— 一个开关必须管住所有导出面（封面 / 总览 / PDF / PPT）。
+   */
+  showDate?: boolean;
 }
 
 /**
@@ -122,6 +128,9 @@ export function buildOverviewSection(params: OverviewParams): (Paragraph | Table
   const dateText =
     exportDate.getFullYear() + '-' + pad2(exportDate.getMonth() + 1) + '-' + pad2(exportDate.getDate());
 
+  // 0.8.4：日期跟「封面印日期」共用一个开关；关掉后只留张数。
+  const metaText = params.showDate === false ? '共 ' + photos.length + ' 张' : '共 ' + photos.length + ' 张 · 生成于 ' + dateText;
+
   blocks.push(
     new Paragraph({
       spacing: { before: 0, after: 160, line: 288, lineRule: 'auto' },
@@ -132,7 +141,7 @@ export function buildOverviewSection(params: OverviewParams): (Paragraph | Table
         }),
         new TextRun({
           ...buildRunStyle(WORD_FONTS.overviewMeta, { color: toDocxColor(WORD_COLORS.lightGray) }),
-          text: '共 ' + photos.length + ' 张 · 生成于 ' + dateText,
+          text: metaText,
         }),
       ],
     }),
@@ -179,8 +188,10 @@ export function buildOverviewSection(params: OverviewParams): (Paragraph | Table
             );
           }
 
-          const indexInAll = start + r * columns + c + 1;
           const title = photo.analysis?.title ?? photo.fileName;
+          // 0.8.4：不再印「01 · 」这种张数编号 —— 用户明确说不需要，书里也不靠编号索引
+          void r;
+          void c;
           children.push(
             new Paragraph({
               alignment: AlignmentType.CENTER,
@@ -188,7 +199,7 @@ export function buildOverviewSection(params: OverviewParams): (Paragraph | Table
               children: [
                 new TextRun({
                   ...buildRunStyle(WORD_FONTS.caption, { color: toDocxColor(WORD_COLORS.midGray) }),
-                  text: pad2(indexInAll) + ' · ' + ellipsis(title, WORD_OVERVIEW.captionMaxChars),
+                  text: ellipsis(title, WORD_OVERVIEW.captionMaxChars),
                 }),
               ],
             }),

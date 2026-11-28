@@ -22,11 +22,11 @@
  */
 
 import { formatCamera, formatExifLine } from '@/lib/image/exif';
-import type { PhotoBlockId } from '@/lib/export/blocks';
 import type { ExportSettings, Photo, PhotoAnalysis, Technique } from '@/types/domain';
 
+import { type BandItemPlan, planPageBands } from './bands';
 import { HEAD_FONT_CSS, bodyFontOption } from './bookStyle';
-import { type ItemPlan, type LayoutPlan, planLayoutPage } from './layout';
+import { type ItemPlan, resolveLayout } from './layout';
 import { tidyParam } from './params';
 import {
   PT_TO_MM,
@@ -57,8 +57,6 @@ export const GRID_HEADING_RESERVE_CM = 3.6;
 /** `.gitem-text` 的内边距（mm）：0.4mm 上下 + 0.6mm 左右，写死在这里与 pdf.ts 的 CSS 对齐 */
 const BOX_PAD_X_MM = 1.2;
 const BOX_PAD_Y_MM = 0.8;
-
-const pad2 = (n: number) => String(n).padStart(2, '0');
 
 const TECH_LABELS: { key: keyof Technique; label: string }[] = [
   { key: 'composition', label: '构图' },
@@ -92,8 +90,9 @@ function innerHeightMm(heightCm: number): number {
   return Math.max(2, heightCm * 10 - BOX_PAD_Y_MM);
 }
 
-/** 图注文案：与 pdf.ts 竖排版保持同一口径（编号 + 标题/参数） */
+/** 图注文案：与 pdf.ts 竖排版保持同一口径（只有标题/参数，不带编号） */
 function captionLine(a: PhotoAnalysis | undefined, settings: ExportSettings, index: number): string {
+  void index;
   const capStyle = settings.captionStyle ?? 'title';
   const paramLine = a?.params
     ? [
@@ -111,8 +110,9 @@ function captionLine(a: PhotoAnalysis | undefined, settings: ExportSettings, ind
     capStyle === 'param' ? [paramLine] : capStyle === 'both' ? [capTitle, paramLine] : [capTitle || paramLine];
   const text = parts.filter((v) => v).join('\u00a0· ');
   // 行首一道破折线：图注比正文小一号、再压一道线，层级才分得开（与竖排版一致）
-  // 分隔点前用不换行空格：窄图注里「·」绝不能单独掉到下一行行首
-  return text ? `— 图 ${pad2(index)}\u00a0· ${text}` : '';
+  // 0.8.4：去掉「— 图 01 · 」前缀 —— 标题已经印在图上方，再挂编号就是用户说的
+  // 「照片旁边那个没必要的小数字」。
+  return text ? `—\u00a0${text}` : '';
 }
 
 /**
@@ -389,8 +389,9 @@ function blockInner(plan: ItemPlan, pt: number, ctx: ItemContext): string {
 
   switch (item.id) {
     case 'index':
-      // 0.8.3：序号受导出设置「显示序号」控制 —— 用户关掉了序号，排版台存的版式也不许照印
-      return ctx.settings.showIndex === false ? '' : `<p class="idx">${pad2(ctx.index)}</p>`;
+      // 0.8.4：序号整个去掉（用户原话「照片左上角还有小数字，就是那个张数，我也不需要」）。
+      // 排版台里如果还摆着「序号」积木，导出时当空块处理，不占位、不留白。
+      return '';
 
     case 'title': {
       const raw = (a?.title || ctx.photo.fileName || '').trim();
@@ -507,50 +508,19 @@ export interface GridPageParams {
    * 必须和 `.break { break-before: page }` 对齐，否则网格页会粘在封面/章节扉页后面。
    */
   breakBefore?: boolean;
+  /** 照片原始宽高（px）：只用来算画幅比，决定照片在版面上能占多高 */
+  imgW?: number;
+  imgH?: number;
+  /** 0.8.4：页码。竖排版那边每页右下角都有页码，积木页以前没有，翻到中间页码就断了 */
+  pageNo?: number;
 }
 
 /**
- * 把「规划阶段被丢掉、但用户确实摆了」的块补回来。
+ * 画一页积木版照片页。返回一段 `<section class="page gpage-sheet">` HTML。
  *
- * layout.ts 的 normalizeLayout 会按 MIN_BOX 把格子补到最小尺寸（正文最小 4 列），
- * 用户把正文摆成 3 列时它被补到 4 列、位置被挤回第 8 列，正好压住照片块，
- * 于是整块被当成「互相压住」丢掉 —— 实测 3 列正文栏里 600 字整段消失（用户看到的
- * 就是「字没了」）。layout.ts 是 Word 共用的，不能改，所以在落地这一侧兜底：
- * 按用户摆的原坐标补画，能不能装下交给 text-measure 按整句缩短。
- */
-function salvageItems(plan: LayoutPlan, settings: ExportSettings, drawn: Set<PhotoBlockId>): ItemPlan[] {
-  const raw = settings.grid?.items ?? [];
-  if (raw.length === 0) return [];
-  const cols = plan.layout.cols;
-  const rows = plan.layout.rows;
-  const out: ItemPlan[] = [];
-  for (const item of raw) {
-    if (drawn.has(item.id)) continue;
-    const colSpan = Math.max(1, Math.min(cols, Math.round(item.colSpan)));
-    const rowSpan = Math.max(1, Math.min(rows, Math.round(item.rowSpan)));
-    const col = Math.max(0, Math.min(cols - colSpan, Math.round(item.col)));
-    const row = Math.max(0, Math.min(rows - rowSpan, Math.round(item.row)));
-    out.push({
-      item: { id: item.id, col, row, colSpan, rowSpan },
-      widthCm: plan.colWCm * colSpan,
-      heightCm: plan.rowHCm * rowSpan,
-      fontPt: 9.5,
-      needCm: plan.rowHCm * rowSpan,
-      fits: false,
-      truncated: true,
-      shrunk: false,
-    });
-    drawn.add(item.id);
-  }
-  return out;
-}
-
-/**
- * 画一页积木版照片页。返回一段 `<section class="page gpage">` HTML，
- * 调用方直接拼进 body。
- *
- * 只在这里出现一次 `planLayoutPage`：几何、字号全听它的，
- * 文字装不装得下由 text-measure 的真实测量说了算。
+ * 0.8.4：几何不再按「12×24 等分格子绝对定位」，改成 bands.ts 规划出来的行带。
+ * 用户抱怨的三件事都出在等分格子上：标题和照片之间空一大块、照片和图注之间空一大块、
+ * 页底再留 1/3 白。行带按内容算高度之后，这些空洞自然消失，富余高度平均分到纸的上下。
  */
 export function buildGridPhotoPage(params: GridPageParams): string {
   const { photo, index, settings, dataUrl } = params;
@@ -558,17 +528,23 @@ export function buildGridPhotoPage(params: GridPageParams): string {
   // 扣掉章头高度，再留一点点安全余量：整页高度必须 ≤ 版心高度，否则多印一张空白页
   const pageHeightCm = Math.max(6, params.contentHeightCm - reservedCm - PAGE_SAFE_CM);
 
-  const plan = planLayoutPage({
+  const layout = resolveLayout(settings);
+  const aspect =
+    params.imgW && params.imgH && params.imgW > 0 && params.imgH > 0
+      ? params.imgW / params.imgH
+      : photo.width > 0 && photo.height > 0
+        ? photo.width / photo.height
+        : 3 / 2;
+
+  const plan = planPageBands({
     photo,
     index,
     settings,
+    layout,
     contentCm: params.contentCm,
     contentHeightCm: pageHeightCm,
+    aspect,
   });
-
-  // 规划丢掉的块（窄格被 MIN_BOX 挤到互相压住）按原坐标补回来
-  const drawn = new Set(plan.items.map((p) => p.item.id));
-  const salvaged = salvageItems(plan, settings, drawn);
 
   const ctx: ItemContext = {
     photo,
@@ -580,28 +556,53 @@ export function buildGridPhotoPage(params: GridPageParams): string {
     sans: HEAD_FONT_CSS,
   };
 
-  const items = [...plan.items, ...salvaged]
-    .map((itemPlan) => {
-      const { item, widthCm, heightCm } = itemPlan;
-      const pt = item.id === 'image' ? 0 : renderPt(item.id, itemPlan.fontPt);
-      const inner = blockInner(itemPlan, pt, ctx);
-      // 没内容的块不占位（避免空白盒子带来的内边距）
-      if (!inner) return '';
-      const leftCm = plan.colWCm * item.col;
-      const topCm = plan.rowHCm * item.row;
-      const kind = item.id === 'image' ? 'gitem-fig' : 'gitem-text';
-      const style = [
-        'position:absolute',
-        `left:${mm(leftCm)}`,
-        `top:${mm(topCm)}`,
-        `width:${mm(widthCm)}`,
-        `height:${mm(heightCm)}`,
-        item.id === 'image' ? '' : `font-size:${pt}pt`,
-      ]
+  const blockHtml = (item: BandItemPlan): string => {
+    const pt = item.id === 'image' ? 0 : renderPt(item.id, plan.fontPt);
+    // 高度按规划给的值，测量与渲染同源：文字刚好排满、图片按画幅收进去
+    const inner = blockInner(
+      {
+        item: { id: item.id, col: item.col, row: 0, colSpan: item.span, rowSpan: 1 },
+        widthCm: item.widthCm,
+        heightCm: Math.max(0.6, item.needCm),
+        fontPt: plan.fontPt,
+        needCm: item.needCm,
+        fits: true,
+        truncated: false,
+        shrunk: false,
+      },
+      pt,
+      ctx,
+    );
+    if (!inner) return '';
+    const fig = item.id === 'image';
+    const style = fig
+      ? `height:${mm(Math.max(1, item.imageHeightCm))}`
+      : `font-size:${pt}pt`;
+    return `<div class="gitem ${fig ? 'gitem-fig' : 'gitem-text'}" data-block="${item.id}" style="${style}">${inner}</div>`;
+  };
+
+  // 同一格（同 col / span）里的块按规划顺序竖着叠
+  const bandsHtml = plan.bands
+    .map((band) => {
+      const cells = new Map<string, BandItemPlan[]>();
+      for (const item of band.items) {
+        const key = `${item.col}:${item.span}`;
+        const list = cells.get(key);
+        if (list) list.push(item);
+        else cells.set(key, [item]);
+      }
+      const cellHtml = [...cells.values()]
+        .map((list) => {
+          const widthCm = list[0].widthCm;
+          const fig = list.length === 1 && list[0].id === 'image';
+          const inner = list.map(blockHtml).filter(Boolean).join('');
+          if (!inner) return '';
+          return `<div class="gcell${fig ? ' gcell-fig' : ''}" style="width:${mm(widthCm)};height:${mm(band.heightCm)}">${inner}</div>`;
+        })
         .filter(Boolean)
-        .join(';');
-      const truncated = itemPlan.truncated && item.id !== 'image' ? ' data-truncated="1"' : '';
-      return `      <div class="gitem ${kind}" data-block="${item.id}"${truncated} style="${style}">${inner}</div>`;
+        .join('');
+      if (!cellHtml) return '';
+      return `<div class="gband" style="height:${mm(band.heightCm)};margin-bottom:${mm(band.gapAfterCm)}">${cellHtml}</div>`;
     })
     .filter(Boolean)
     .join('\n');
@@ -609,14 +610,17 @@ export function buildGridPhotoPage(params: GridPageParams): string {
   // 高度写死成 mm：不靠内容撑开，一张照片页永远只占一页。
   // `break` 类沿用竖排版那套（.page.break { break-before: page }）：和上一个板块的
   // break-after 挨在一起时，CSS 分页会合并成一次强制分页，不会多出空白页。
-  // 0.8.3：外面再包一层 .page —— 纸色要铺满整张纸（含页边距），而积木是按版心坐标
-  // 绝对定位的，所以坐标容器保持原尺寸放在内层，外层只负责「一张纸」。
+  // 外面再包一层 .page —— 纸色要铺满整张纸（含页边距），内层 .gpage 只管版心。
   const breakClass = params.breakBefore === false ? '' : ' break';
-  const radius = settings.photoRadius != null && settings.photoRadius > 0 ? `--photo-radius:${settings.photoRadius}mm;` : '';
+  const radius =
+    settings.photoRadius != null && settings.photoRadius > 0
+      ? `--photo-radius:${settings.photoRadius}mm;`
+      : '';
   return `
     <section class="page gpage-sheet${breakClass}" style="${radius}">
-      <div class="gpage" style="position:relative;width:${mm(params.contentCm)};height:${mm(pageHeightCm)}">
-${items}
+      <div class="gpage" style="width:${mm(params.contentCm)};height:${mm(pageHeightCm)};padding-top:${mm(plan.topPadCm)}">
+${bandsHtml}
+${params.pageNo ? `<p class="pg-folio">${params.pageNo}</p>` : ''}
       </div>
     </section>`;
 }

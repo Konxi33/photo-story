@@ -409,7 +409,7 @@ let updateCheckCache = null; // { at: number, payload: object }
  * 否则已经装了同版本旧包的人永远得到「已是最新」。
  * 每次重新打包都要改这里，并且 Release 正文里写同值的 <!-- build:20261128b -->。
  */
-const BUILD_STAMP = '20261128c';
+const BUILD_STAMP = '20261128d';
 
 const {
   parseVersionParts,

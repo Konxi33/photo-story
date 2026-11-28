@@ -206,10 +206,7 @@ export function blockLayout(settings: ExportSettings): PageLayout {
   const LEFT = 8;
   const RIGHT = GRID_COLS - LEFT;
   let row = 0;
-  if (ids.includes('index')) {
-    put('index', 0, row, 2, 1);
-    row += 1;
-  }
+  // 0.8.4：不再排「照片序号」—— 用户明确不要照片旁的小数字，导出侧一律不占位。
   if (ids.includes('title')) {
     put('title', 0, row, LEFT, 2);
     row += 2;
@@ -310,8 +307,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: '摄影集',
     hint: '整页大图，下面一行图注和一段正文，最像正式画册',
     layout: page([
-      { id: 'index', col: 0, row: 0, colSpan: 1, rowSpan: 1 },
-      { id: 'title', col: 1, row: 0, colSpan: 11, rowSpan: 1 },
+      { id: 'title', col: 0, row: 0, colSpan: 12, rowSpan: 1 },
       { id: 'image', col: 0, row: 1, colSpan: 12, rowSpan: 11 },
       { id: 'caption', col: 0, row: 12, colSpan: 12, rowSpan: 1 },
       { id: 'story', col: 0, row: 13, colSpan: 12, rowSpan: 6 },
@@ -323,8 +319,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: '参赛投稿',
     hint: '上图下文，带类别、评分与改进建议，适合投比赛',
     layout: page([
-      { id: 'index', col: 0, row: 0, colSpan: 1, rowSpan: 1 },
-      { id: 'title', col: 1, row: 0, colSpan: 11, rowSpan: 1 },
+      { id: 'title', col: 0, row: 0, colSpan: 12, rowSpan: 1 },
       { id: 'image', col: 0, row: 1, colSpan: 12, rowSpan: 10 },
       { id: 'caption', col: 0, row: 11, colSpan: 12, rowSpan: 1 },
       { id: 'category', col: 0, row: 12, colSpan: 6, rowSpan: 1 },
@@ -340,8 +335,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: '技术档案',
     hint: '左图右参数，机身、参数、手法、评分全印，给同行看',
     layout: page([
-      { id: 'index', col: 0, row: 0, colSpan: 1, rowSpan: 1 },
-      { id: 'title', col: 1, row: 0, colSpan: 11, rowSpan: 1 },
+      { id: 'title', col: 0, row: 0, colSpan: 12, rowSpan: 1 },
       { id: 'image', col: 0, row: 1, colSpan: 8, rowSpan: 7 },
       { id: 'exif', col: 8, row: 1, colSpan: 4, rowSpan: 1 },
       { id: 'params', col: 8, row: 2, colSpan: 4, rowSpan: 3 },
@@ -386,8 +380,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: '杂志对开',
     hint: '左边大图、右边一栏文字，像杂志内页',
     layout: page([
-      { id: 'index', col: 0, row: 0, colSpan: 2, rowSpan: 1 },
-      { id: 'title', col: 2, row: 0, colSpan: 10, rowSpan: 1 },
+      { id: 'title', col: 0, row: 0, colSpan: 12, rowSpan: 1 },
       { id: 'image', col: 0, row: 1, colSpan: 8, rowSpan: 7 },
       { id: 'caption', col: 0, row: 8, colSpan: 8, rowSpan: 1 },
       { id: 'advice', col: 0, row: 9, colSpan: 8, rowSpan: 7 },
@@ -414,8 +407,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
     name: '完整档案',
     hint: '所有积木都摆上，信息最全（图和字都会小一点）',
     layout: page([
-      { id: 'index', col: 0, row: 0, colSpan: 1, rowSpan: 1 },
-      { id: 'title', col: 1, row: 0, colSpan: 11, rowSpan: 1 },
+      { id: 'title', col: 0, row: 0, colSpan: 12, rowSpan: 1 },
       { id: 'image', col: 0, row: 1, colSpan: 7, rowSpan: 6 },
       { id: 'caption', col: 0, row: 7, colSpan: 7, rowSpan: 1 },
       { id: 'exif', col: 0, row: 8, colSpan: 7, rowSpan: 1 },
@@ -537,14 +529,17 @@ export function blockNeedCm(input: NeedInput): number {
     case 'image':
       return 0;
     case 'index':
+      // 0.8.4：序号不再导出，也不占高度
+      return 0;
     case 'category':
     case 'mood':
       return lineH + 0.1;
     case 'caption': {
+      // 0.8.4：图注不再带编号前缀（只有标题/参数），与 PDF、Word 的渲染口径一致
       const text =
         (settings.captionStyle ?? 'title') === 'param'
-          ? '图 01 · 1/250s · f/5.6 · ISO 200 · 50mm'
-          : `图 ${String(input.index).padStart(2, '0')} · ${analysis?.title ?? photo.fileName}`;
+          ? '1/250s · f/5.6 · ISO 200 · 50mm'
+          : `${analysis?.title ?? photo.fileName}`;
       return measureTextCm(text, widthCm, Math.min(fontPt, 8.5), 1.5).needCm + 0.2;
     }
     case 'title': {
@@ -652,7 +647,10 @@ export function planLayoutPage(input: LayoutPlanInput): LayoutPlan {
   const base = resolveLayout(input.settings);
   const layout: PageLayout = {
     ...base,
-    items: base.items.map((item) => ({ ...item })),
+    // 0.8.4：用户存下来的版式里可能还摆着「照片序号」积木（旧版默认就有），
+    // 导出时一律先摘掉 —— 否则它会占掉一格、渲染却为空，正好是用户说的
+    // 「有些方框直接不显示」和「照片左上角还有小数字」两个毛病。
+    items: base.items.filter((item) => item.id !== 'index').map((item) => ({ ...item })),
   };
   // 0.6.2：竖排先按真实文字高度重排，剩下的行全给照片（否则半页空白、照片很小）
   let dropped: PhotoBlockId[] = [];

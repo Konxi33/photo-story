@@ -1,6 +1,6 @@
 {
   "name": "photo-story",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "private": true,
   "license": "MIT",
   "description": "把一组照片写成一册能直接打印的图文册：AI 看图写作 + 评分挑片 + 编排 + 打印级排版导出（Word/PPT/PDF）",

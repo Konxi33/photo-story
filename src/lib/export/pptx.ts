@@ -128,15 +128,19 @@ export async function exportToPptx(
     color: '6B6B6B',
     fontFace: '宋体',
   });
-  cover.addText(formatDate(new Date()) + ' · 共 ' + photos.length + ' 张', {
-    x: MARGIN,
-    y: 4.2,
-    w: SLIDE_W - MARGIN * 2,
-    h: 0.5,
-    fontSize: 12,
-    color: '8A8A8A',
-    fontFace: '宋体',
-  });
+  // 0.8.4：日期跟「封面印日期」同一个开关走，关掉后只留张数。
+  cover.addText(
+    (params.settings?.showDate === false ? '' : formatDate(new Date()) + ' · ') + '共 ' + photos.length + ' 张',
+    {
+      x: MARGIN,
+      y: 4.2,
+      w: SLIDE_W - MARGIN * 2,
+      h: 0.5,
+      fontSize: 12,
+      color: '8A8A8A',
+      fontFace: '宋体',
+    },
+  );
 
   const frameSettings = params.settings;
   let done = 0;

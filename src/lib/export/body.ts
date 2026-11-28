@@ -61,21 +61,18 @@ const TECHNIQUE_ORDER: (keyof Technique)[] = [
 export { tidyParam } from './params';
 
 /**
- * 图注。0.5.5：改成摄影书口径——编号 + 标题（参数移进书末「技术附录」）。
- * 理由：真实摄影书的图注写「Plate 12 · 标题 · 年份 · 地点」，器材参数统一
- * 放在书末附录，不然每页都挂一串 1/320s f/1.8 ISO 400，翻起来像说明书。
+ * 图注。0.8.4：去掉「图 01 · 」编号前缀 —— 用户明确说照片旁那个小数字不需要。
+ * 现在的口径是「标题（或参数）单独一行，行首一道破折线」，和 PDF 竖排版完全一致：
+ * 标题已经印在照片上方时不重复（由调用方决定是否省略图注块）。
  */
 function buildImageCaption(photo: Photo, index: number, style: 'title' | 'param' | 'both'): string {
-  const label = '图 ' + String(index).padStart(2, '0');
+  void index;
   const title = (photo.status === 'success' ? photo.analysis?.title : '')?.trim() || '';
   const paramText = buildParamLine(photo);
 
-  if (style === 'param') return paramText ? label + ' · ' + paramText : label;
-  if (style === 'both') {
-    const parts = [title, paramText].filter(Boolean);
-    return parts.length > 0 ? label + ' · ' + parts.join(' · ') : label;
-  }
-  return title ? label + ' · ' + title : paramText ? label + ' · ' + paramText : label;
+  if (style === 'param') return paramText;
+  if (style === 'both') return [title, paramText].filter(Boolean).join(' · ');
+  return title || paramText;
 }
 
 /** 一行器材与曝光参数（EXIF 优先，没有就用模型读出来的 params） */
@@ -278,20 +275,9 @@ export function renderBlock(
 
   switch (id) {
     case 'index':
-      return [
-        blockParagraph({
-          ctx,
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 0, after: WORD_BODY.gapAfterIndexPt * 20, line: 240 },
-          children: [
-            new TextRun({
-              ...buildRunStyle(WORD_FONTS.sectionIndex, { color: toDocxColor(WORD_COLORS.lightGray) }),
-              text: String(ctx.index).padStart(2, '0'),
-            }),
-          ],
-          lead,
-        }),
-      ];
+      // 0.8.4：照片左上角那个「01 / 02」小数字，用户明确说不需要。
+      // 排版台上如果还摆着「序号」积木，导出时一律当空块处理（不占位、不留白）。
+      return [];
 
     case 'title': {
       return [
