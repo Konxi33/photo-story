@@ -2,6 +2,9 @@
 // 0.7.7：项目里就能改「怎么写」。
 // 以前标题风格 / 叙事笔法 / 故事长度只能在全局设置页调，进了项目发现不合适就得退出去，
 // 这个面板把这三件事搬到项目工作台里，改完立刻对下一次生成生效（已经生成的照片不动）。
+//
+// 0.8.2 补丁：多一项「标题字数」——用户反馈「不能自定义字数范围」。
+// 给四个预设（1–4 / 2–8 / 4–12 / 6–18）+ 自定义上下限；上限是硬约束，下限交给模型要求。
 
 'use client';
 
@@ -17,15 +20,24 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
-import { NARRATIVE_STYLES, STORY_LENGTHS, TITLE_STYLES, styleExamples } from '@/config/styles';
+import {
+  NARRATIVE_STYLES,
+  STORY_LENGTHS,
+  TITLE_RANGES,
+  TITLE_STYLES,
+  clampTitleRange,
+  styleExamples,
+} from '@/config/styles';
 import { STORAGE_KEY_APP_SETTINGS } from '@/config/app';
 import { KvRepository } from '@/lib/db';
 import { cn } from '@/lib/utils';
-import type { AppSettings, NarrativeStyle, StoryLength, TitleStyle } from '@/types/domain';
+import type { AppSettings, NarrativeStyle, StoryLength, TitleRange, TitleStyle } from '@/types/domain';
 
 export interface WritingSettings {
   titleStyle: TitleStyle;
+  titleRange: TitleRange;
   narrativeStyle: NarrativeStyle;
   storyLength: StoryLength;
 }
@@ -43,21 +55,42 @@ const PRESETS: { id: string; label: string; hint: string; value: WritingSettings
     id: 'caption',
     label: '像图注',
     hint: '短、克制、只写画面里有的',
-    value: { titleStyle: 'plain', narrativeStyle: 'terse', storyLength: 'short' },
+    value: {
+      titleStyle: 'plain',
+      titleRange: { min: 2, max: 8 },
+      narrativeStyle: 'terse',
+      storyLength: 'short',
+    },
   },
   {
     id: 'essay',
     label: '像随笔',
     hint: '有画面也有语气，中等长度',
-    value: { titleStyle: 'literary', narrativeStyle: 'essay', storyLength: 'medium' },
+    value: {
+      titleStyle: 'literary',
+      titleRange: { min: 2, max: 10 },
+      narrativeStyle: 'essay',
+      storyLength: 'medium',
+    },
   },
   {
     id: 'documentary',
     label: '像纪实',
     hint: '冷静、按时间线铺开',
-    value: { titleStyle: 'cinematic', narrativeStyle: 'documentary', storyLength: 'long' },
+    value: {
+      titleStyle: 'cinematic',
+      titleRange: { min: 2, max: 8 },
+      narrativeStyle: 'documentary',
+      storyLength: 'long',
+    },
   },
 ];
+
+/** 当前范围命中哪个预设（没有就是自定义） */
+function rangePresetId(range: TitleRange): string {
+  const hit = TITLE_RANGES.find((r) => r.min === range.min && r.max === range.max);
+  return hit?.id ?? 'custom';
+}
 
 export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSheetProps) {
   const [draft, setDraft] = useState<WritingSettings>(value);
@@ -71,6 +104,11 @@ export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSh
   const titleHint = titleStyleOption?.hint ?? '';
   const titleExamples = titleStyleOption ? styleExamples(titleStyleOption) : [];
   const storyHint = NARRATIVE_STYLES.find((s) => s.id === draft.narrativeStyle)?.hint ?? '';
+  const range = draft.titleRange;
+
+  const setRange = (next: Partial<TitleRange>): void => {
+    setDraft((prev) => ({ ...prev, titleRange: clampTitleRange({ ...prev.titleRange, ...next }) }));
+  };
 
   const handleSave = async (): Promise<void> => {
     setSaving(true);
@@ -79,6 +117,7 @@ export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSh
       const next: AppSettings = {
         ...(saved ?? ({} as AppSettings)),
         titleStyle: draft.titleStyle,
+        titleRange: draft.titleRange,
         narrativeStyle: draft.narrativeStyle,
         storyLength: draft.storyLength,
       };
@@ -153,6 +192,49 @@ export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSh
                 例如：{titleExamples.join(' · ')}
               </p>
             )}
+          </div>
+
+          {/* 0.8.2 补丁：标题字数范围 */}
+          <div className="grid gap-2">
+            <span className="ps-eyebrow">标题字数</span>
+            <Segmented
+              block
+              size="sm"
+              ariaLabel="标题字数范围"
+              value={rangePresetId(range)}
+              onChange={(next) => {
+                const preset = TITLE_RANGES.find((r) => r.id === next);
+                if (preset) setRange({ min: preset.min, max: preset.max });
+                else setRange({ min: range.min, max: range.max });
+              }}
+              options={[
+                ...TITLE_RANGES.map((r) => ({ value: r.id, label: r.label.replace(/\s*字?（.*$/, '') })),
+                { value: 'custom', label: '自定义' },
+              ]}
+            />
+            <div className="flex items-center gap-2 text-[11.5px] text-ink-faint">
+              <span>最少</span>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={range.min}
+                aria-label="标题最少字数"
+                onChange={(e) => setRange({ min: Number(e.target.value) })}
+                className="h-8 w-16 text-center"
+              />
+              <span>最多</span>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={range.max}
+                aria-label="标题最多字数"
+                onChange={(e) => setRange({ max: Number(e.target.value) })}
+                className="h-8 w-16 text-center"
+              />
+              <span className="text-ink-faint/80">最多字数是硬约束，超过会被截短。</span>
+            </div>
           </div>
 
           <div className="grid gap-2">

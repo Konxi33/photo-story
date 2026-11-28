@@ -22,7 +22,7 @@
 // · 并置：「亮着的店，关着的门」——两样东西并排，关系不点破。
 // 这六种都是「短、不解释、可核对」，而且彼此的语感差得很远，一批照片混排也不会像一个模子。
 
-import type { NarrativeStyle, StoryLength, TitleStyle } from '@/types/domain';
+import type { NarrativeStyle, StoryLength, TitleRange, TitleStyle } from '@/types/domain';
 
 export interface StyleOption<T extends string> {
   id: T;
@@ -182,6 +182,14 @@ export const TITLE_BANNED_WORDS = [
   '呢喃',
   '浅吟',
   '诗意地',
+  '痕迹',
+  '呼吸',
+  '余温',
+  '轮廓',
+  '絮语',
+  '光阴',
+  '记忆',
+  '日常',
 ];
 
 /**
@@ -221,6 +229,48 @@ export const TITLE_EXAMPLES = [
 export const DEFAULT_TITLE_STYLE: TitleStyle = 'literary';
 export const DEFAULT_NARRATIVE_STYLE: NarrativeStyle = 'essay';
 export const DEFAULT_STORY_LENGTH: StoryLength = 'medium';
+
+/**
+ * 标题字数范围（0.8.2 补丁）。
+ *
+ * 为什么要有：赛事命名法里的好标题长度差得很远——「盐」1 字，「无题 No.04」8 字，
+ * 「道路中隐藏的秘密」9 字，《视界》2 字。固定一个上限会把其中的一半截坏。
+ * 所以给四个预设 + 自定义，默认「短（2–8 字）」覆盖大多数画册目录。
+ *
+ * max 在清洗层是硬约束（超了必截），min 只交给模型要求（一个词的写法不该被硬撑长）。
+ */
+export interface TitleRangeOption {
+  id: 'tiny' | 'short' | 'medium' | 'long';
+  label: string;
+  min: number;
+  max: number;
+}
+
+export const TITLE_RANGES: TitleRangeOption[] = [
+  { id: 'tiny', label: '1–4 字（一个词）', min: 1, max: 4 },
+  { id: 'short', label: '2–8 字', min: 2, max: 8 },
+  { id: 'medium', label: '4–12 字', min: 4, max: 12 },
+  { id: 'long', label: '6–18 字', min: 6, max: 18 },
+];
+
+export const DEFAULT_TITLE_RANGE: TitleRange = { min: 2, max: 8 };
+
+/** 把界面上的任意输入收进合法区间：1–24、min ≤ max、整数 */
+export function clampTitleRange(range?: Partial<TitleRange> | null): TitleRange {
+  const toInt = (v: unknown, fallback: number): number => {
+    const n = typeof v === 'number' ? Math.round(v) : Number.parseInt(String(v ?? ''), 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const min = Math.min(24, Math.max(1, toInt(range?.min, DEFAULT_TITLE_RANGE.min)));
+  const max = Math.min(24, Math.max(min, toInt(range?.max, Math.max(min, DEFAULT_TITLE_RANGE.max))));
+  return { min, max };
+}
+
+/** 界面用一句话说清当前范围（「2–8 字」） */
+export function titleRangeLabel(range?: Partial<TitleRange> | null): string {
+  const r = clampTitleRange(range);
+  return r.min === r.max ? `${r.min} 字` : `${r.min}–${r.max} 字`;
+}
 
 export const getTitleStyle = (id?: TitleStyle): StyleOption<TitleStyle> =>
   TITLE_STYLES.find((s) => s.id === id) ?? TITLE_STYLES[0]!;

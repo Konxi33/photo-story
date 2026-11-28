@@ -63,9 +63,12 @@ import {
   STORAGE_KEY_APP_SETTINGS,
 } from '@/config/app';
 import {
+  DEFAULT_TITLE_RANGE,
   NARRATIVE_STYLES,
   STORY_LENGTHS,
+  TITLE_RANGES,
   TITLE_STYLES,
+  clampTitleRange,
   getNarrativeStyle,
   getStoryLength,
   getTitleStyle,
@@ -108,6 +111,7 @@ import type {
   StorageUsage,
   StoryLength,
   ThemeMode,
+  TitleRange,
   TitleStyle,
 } from '@/types/domain';
 
@@ -157,6 +161,8 @@ export default function SettingsPage() {
 
   // 风格
   const [titleStyle, setTitleStyle] = useState<TitleStyle>('literary');
+  // 0.8.2 补丁：标题字数范围（预设 + 自定义），上限在清洗层是硬约束
+  const [titleRange, setTitleRange] = useState<TitleRange>(DEFAULT_TITLE_RANGE);
   const [narrativeStyle, setNarrativeStyle] = useState<NarrativeStyle>('essay');
   const [storyLength, setStoryLength] = useState<StoryLength>('medium');
 
@@ -319,6 +325,7 @@ export default function SettingsPage() {
         setAiEdge(s.aiImageMaxEdge ?? 1024);
         setPreviewEdge(s.previewMaxEdge ?? 640);
         setTitleStyle(s.titleStyle ?? 'literary');
+        setTitleRange(clampTitleRange(s.titleRange));
         setNarrativeStyle(s.narrativeStyle ?? 'essay');
         setStoryLength(s.storyLength ?? 'medium');
         setTheme(s.theme ?? 'paper');
@@ -405,6 +412,7 @@ export default function SettingsPage() {
         aiEdge,
         previewEdge,
         titleStyle,
+        titleRange,
         narrativeStyle,
         storyLength,
         theme,
@@ -443,6 +451,7 @@ export default function SettingsPage() {
       aiEdge,
       previewEdge,
       titleStyle,
+      titleRange,
       narrativeStyle,
       storyLength,
       theme,
@@ -537,6 +546,7 @@ export default function SettingsPage() {
         previewMaxEdge: Math.min(1200, Math.max(320, previewEdge)),
         storageNoticeDismissed: true,
         titleStyle,
+        titleRange,
         narrativeStyle,
         storyLength,
         theme,
@@ -888,6 +898,56 @@ export default function SettingsPage() {
             <p className="text-[11px] text-ink-faint">
               例如：{styleExamples(getTitleStyle(titleStyle)).join(' · ')}
             </p>
+          </Field>
+
+          {/* 0.8.2 补丁：标题字数范围可自定义 */}
+          <Field label="标题字数">
+            <Segmented
+              block
+              size="sm"
+              ariaLabel="标题字数范围"
+              value={
+                TITLE_RANGES.find((r) => r.min === titleRange.min && r.max === titleRange.max)?.id ??
+                'custom'
+              }
+              onChange={(next) => {
+                const preset = TITLE_RANGES.find((r) => r.id === next);
+                if (preset) setTitleRange({ min: preset.min, max: preset.max });
+              }}
+              options={[
+                ...TITLE_RANGES.map((r) => ({ value: r.id, label: r.label })),
+                { value: 'custom', label: '自定义' },
+              ]}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-ink-faint">最少</span>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={titleRange.min}
+                aria-label="标题最少字数"
+                onChange={(e) =>
+                  setTitleRange((prev) => clampTitleRange({ ...prev, min: Number(e.target.value) }))
+                }
+                className="h-8 w-16 text-center"
+              />
+              <span className="text-[11px] text-ink-faint">最多</span>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={titleRange.max}
+                aria-label="标题最多字数"
+                onChange={(e) =>
+                  setTitleRange((prev) => clampTitleRange({ ...prev, max: Number(e.target.value) }))
+                }
+                className="h-8 w-16 text-center"
+              />
+              <span className="text-[11px] text-ink-faint">
+                最多字数是硬约束，超过会被截短；最少字数交给模型，一个词的写法不会被硬撑长。
+              </span>
+            </div>
           </Field>
 
           <Field label="叙事风格">

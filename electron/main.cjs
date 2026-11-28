@@ -407,9 +407,9 @@ let updateCheckCache = null; // { at: number, payload: object }
  * 本安装包的构建标记（0.8.2）。
  * 版本号相同、只是重打了安装包时，靠它来判断「云上那个包比本机新」——
  * 否则已经装了同版本旧包的人永远得到「已是最新」。
- * 每次重新打包都要改这里，并且 Release 正文里写同值的 <!-- build:20261128a -->。
+ * 每次重新打包都要改这里，并且 Release 正文里写同值的 <!-- build:20261128b -->。
  */
-const BUILD_STAMP = '20261128a';
+const BUILD_STAMP = '20261128b';
 
 const {
   parseVersionParts,

@@ -4,7 +4,14 @@
 import { z } from 'zod';
 
 import { polishAnalysis } from '@/lib/ai/polish';
-import type { PhotoAnalysis, PhotoScore, ShootingParams, Technique, TitleStyle } from '@/types/domain';
+import type {
+  PhotoAnalysis,
+  PhotoScore,
+  ShootingParams,
+  Technique,
+  TitleRange,
+  TitleStyle,
+} from '@/types/domain';
 
 const Text = z.string().trim().catch('');
 
@@ -153,7 +160,7 @@ function normalizeBullets(input: string[] | undefined, warnings: string[], label
 
 export function normalizePhotoAnalysis(
   input: PhotoAnalysis,
-  options: { usedTitles?: string[]; titleStyle?: TitleStyle } = {},
+  options: { usedTitles?: string[]; titleStyle?: TitleStyle; titleRange?: TitleRange } = {},
 ): {
   data: PhotoAnalysis;
   warnings: string[];
@@ -243,6 +250,7 @@ export function normalizePhotoAnalysis(
   const polished = polishAnalysis(data, {
     usedTitles: options.usedTitles,
     titleStyle: options.titleStyle,
+    titleRange: options.titleRange,
   });
   for (const note of polished.notes) {
     warnings.push(`文案收尾：${note.field} 已修正（${note.reason}）`);
@@ -284,7 +292,7 @@ function extractJsonText(raw: string): string | null {
 
 export function parsePhotoAnalysis(
   raw: string,
-  options: { usedTitles?: string[]; titleStyle?: TitleStyle } = {},
+  options: { usedTitles?: string[]; titleStyle?: TitleStyle; titleRange?: TitleRange } = {},
 ): ParsePhotoAnalysisResult {
   const jsonText = extractJsonText(raw);
   if (!jsonText) {

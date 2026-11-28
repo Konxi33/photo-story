@@ -31,6 +31,10 @@ const AnalyzeRequestSchema = z
           .enum(['essay', 'documentary', 'prose-poem', 'diary', 'terse'])
           .optional(),
         storyLength: z.enum(['short', 'medium', 'long']).optional(),
+        // 0.8.2 补丁：标题字数范围（下限交给模型，上限在清洗层硬截）
+        titleRange: z
+          .object({ min: z.number().int().min(1).max(24), max: z.number().int().min(1).max(24) })
+          .optional(),
         existingTitles: z.array(z.string().max(40)).max(200).optional(),
         pageHint: z.string().max(400).optional(),
       })
@@ -129,6 +133,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const outcome = parsePhotoAnalysis(result.raw, {
     usedTitles: req.style?.existingTitles,
     titleStyle: req.style?.titleStyle,
+    titleRange: req.style?.titleRange,
   });
     if (!outcome.ok) {
       return fail(outcome.error.code, outcome.error.message, 422, outcome.error.raw);

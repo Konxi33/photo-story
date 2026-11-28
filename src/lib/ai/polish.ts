@@ -10,6 +10,7 @@
 // 同一批照片的标题去重也在这里（标题撞车是最容易被看出来的破绽）。
 
 import type { PhotoAnalysis, TitleStyle } from '@/types/domain';
+import { refineTitle } from '@/lib/ai/title-doctor';
 
 /** 单个分析结果的收尾报告，方便开发时看「到底改了什么」 */
 export interface PolishNote {
@@ -148,10 +149,11 @@ function allowsBareNoun(style?: TitleStyle): boolean {
 
 export function polishTitle(
   raw: string,
-  hints: { story?: string; titleStyle?: TitleStyle } = {},
+  hints: { story?: string; titleStyle?: TitleStyle; maxLength?: number } = {},
 ): { title: string; notes: PolishNote[] } {
   const notes: PolishNote[] = [];
   const original = collapse(raw);
+  const cap = Math.min(24, Math.max(2, hints.maxLength ?? 14));
 
   let title = original
     .replace(/^[《〈「『"“'']+/, '')
@@ -185,10 +187,10 @@ export function polishTitle(
     title = title.replace(/^[的之里中在与和]+|[的之里中在与和]+$/g, '').trim();
   }
 
-  // 0.8.1：上限从 10 放宽到 14 —— 「道路中隐藏的秘密」这种获奖名录里的标题就有 9–12 字，
-  // 一刀切到 10 会把标题截成半句。断点优先破折号与逗号（那是命名法里的分隔），其次空格与「的」；
-  // 断点切完仍超长（断点太靠后）就硬截到 14，保证「压到 14 字」是硬承诺。
-  if (title.length > 14) {
+  // 0.8.2 补丁：上限改用用户定的范围（默认 14）——「道路中隐藏的秘密」这种获奖名录里的标题
+  // 就有 9–12 字，一刀切到 10 会把标题截成半句。断点优先破折号与逗号（那是命名法里的分隔），
+  // 其次空格与「的」；断点切完仍超长就硬截，保证「压到 max 字」是硬承诺。
+  if (title.length > cap) {
     const cut = Math.max(
       title.lastIndexOf('，'),
       title.lastIndexOf('—'),
@@ -196,15 +198,16 @@ export function polishTitle(
       title.lastIndexOf('的'),
     );
     const candidate = cut >= 2 ? title.slice(0, cut).trim() : title;
-    const next = candidate.length > 14 ? title.slice(0, 14).trim() : candidate;
-    notes.push({ field: 'title', from: title, to: next, reason: '超过 14 字' });
+    const next = candidate.length > cap ? title.slice(0, cap).trim() : candidate;
+    notes.push({ field: 'title', from: title, to: next, reason: '超过 ' + String(cap) + ' 字' });
     title = next;
   }
 
   // 剔词剔空了，或只剩一两个字：从正文里捞一个具体物名当标题。
   // 0.8.0：只有「确实动过这个标题」才补位 —— 原来无条件在 <4 字时补，
   // 把「空椅」这种本来就成立的短标题也换成了正文里的半截从句。
-  if (title.length < 4 && hints.story && (touched || title !== original)) {
+  // 0.8.2 补丁：上限比 4 还小的范围（比如 2–3 字）不许补位，否则必然超范围。
+  if (title.length < 4 && cap >= 4 && hints.story && (touched || title !== original)) {
     const rescued = rescueTitleFromStory(hints.story);
     if (rescued) {
       notes.push({ field: 'title', from: original, to: rescued, reason: '剔词后不成词，改从正文取物名' });
@@ -499,6 +502,12 @@ export interface PolishOptions {
   usedTitles?: string[];
   /** 本次的标题命名法：单词 / 无题编号 这两种要放行「只有一个词」 */
   titleStyle?: TitleStyle;
+  /**
+   * 0.8.2 补丁：用户在设置里定的标题字数范围。
+   * max 是硬约束（超了就截），min 只交给提示词与重写层尽力满足——
+   * 一个词的写法本来就可能只有一两个字，硬撑长反而更假。
+   */
+  titleRange?: { min: number; max: number };
 }
 
 /**
@@ -537,6 +546,7 @@ export function polishAnalysis(analysis: PhotoAnalysis, options: PolishOptions =
   const titleResult = polishTitle(analysis.title, {
     story: storyResult.story,
     titleStyle: options.titleStyle,
+    maxLength: options.titleRange?.max,
   });
   notes.push(...titleResult.notes);
   let title = titleResult.title;
@@ -552,6 +562,29 @@ export function polishAnalysis(analysis: PhotoAnalysis, options: PolishOptions =
       altScene ??
       (candidate && !used.some((t) => isNearDuplicate(t, candidate)) ? candidate : `${title}·二`);
     notes.push({ field: 'title', from: before, to: title, reason: '同批重名' });
+  }
+
+  // 0.8.2 补丁：最后过一遍「标题大夫」——判句子感、判句式撞车、按用户定的字数范围收口。
+  // 提示词治不住「刚拧干的抹布」「压着它的还是那块」这类句子，所以在这一层换成
+  // 赛事命名的构件（地名+时刻 / 单词 / 编号 / 并置），且只用这张照片正文里出现过的词。
+  const refined = refineTitle(title, {
+    story: storyResult.story,
+    style: options.titleStyle,
+    range: {
+      min: options.titleRange?.min ?? 1,
+      max: options.titleRange?.max ?? 14,
+    },
+    index: used.length + 1,
+    existingTitles: used,
+  });
+  if (refined.title !== title) {
+    notes.push({
+      field: 'title',
+      from: title,
+      to: refined.title,
+      reason: refined.note ?? '换了一种句式',
+    });
+    title = refined.title;
   }
 
   const mood = collapse(analysis.mood)

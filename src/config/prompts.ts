@@ -23,10 +23,12 @@ export const PROMPT_VERSION = 'v8' as const;
 import {
   TITLE_BANNED_WORDS,
   TITLE_EXAMPLES,
+  clampTitleRange,
   getNarrativeStyle,
   getStoryLength,
   getTitleStyle,
 } from '@/config/styles';
+import { TITLE_SHAPE_LABELS, countTitleShapes, type TitleShape } from '@/lib/ai/title-doctor';
 import type { AnalyzeStyleOptions } from '@/types/domain';
 
 export const SYSTEM_PROMPT = `你是一位给摄影画册写图注的编辑，也写短篇的图文随笔。你的活儿是：看一张照片，写一段短文字，再给这一页起一个名字。
@@ -244,12 +246,23 @@ function buildStyleBlock(style?: AnalyzeStyleOptions): string {
   const title = getTitleStyle(style?.titleStyle);
   const narrative = getNarrativeStyle(style?.narrativeStyle);
   const length = getStoryLength(style?.storyLength);
+  const range = clampTitleRange(style?.titleRange);
+
+  // 0.8.2 补丁：把「这批已经用过哪些句式」直接告诉模型。
+  // 上一版只给了「不许重复标题」，模型于是每张都用同一种句式（地名+时刻），
+  // 排在一起还是像一个模子；这里点明「哪几种已经用满 3 次」，它才会换。
+  const shapeUsage = countTitleShapes(style?.existingTitles ?? []);
+  const crowded = Object.entries(shapeUsage)
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .map(([shape, count]) => `${TITLE_SHAPE_LABELS[shape as TitleShape] ?? shape} ×${String(count)}`);
 
   const lines = [
     '【本次写作要求】',
     `标题命名法：${title.label} —— ${title.hint}`,
     `叙事风格：${narrative.label} —— ${narrative.hint}`,
     `故事长度：${length.min}–${length.max} 字，必须落在这个区间。`,
+    `标题字数：${range.min}–${range.max} 字（用户自己定的，必须落在区间内；短标题本身是优点，不要为了凑字数加修饰）。`,
     `标题禁止使用这些空泛词：${TITLE_BANNED_WORDS.join('、')}。`,
     `赛事图注里的标题读感参考（不要照抄，只学长度与不解释）：${TITLE_EXAMPLES.join(' / ')}。`,
     'title 只用上面指定的那一种命名法，一批照片统一，不许每张换一种。'
@@ -257,6 +270,8 @@ function buildStyleBlock(style?: AnalyzeStyleOptions): string {
     'title 不许写成描述完整的句子（「光只到了半条街」「他坐在门口的第三级台阶上」都不行），也不许写成「某物 + 的 + 某物」的道具标签。',
     'title 里不出现「时光」「城市的一天」这类放之四海皆可的话，也不要商品名或物品清单。',
     '同一批照片里的标题不得重复，也不要近义改写（例如已有「空椅」，就不能再写「一把空椅」）。',
+    // 0.8.2：句式撞车是「一批看起来像 AI 写的」的主因，明确给出配额
+    '同一批里不要连着三张用同一种句式（比如全是「名词，时刻」）；序号类的「无题 No.xx」一批顶多用两张。',
     'tags 与 mood 也要具体，避免「生活」「日常」这类空词。',
     '',
     HUMAN_TONE_BLACKLIST,
@@ -276,11 +291,17 @@ function buildStyleBlock(style?: AnalyzeStyleOptions): string {
     '8. 句子长短：有没有一句 ≤8 字、有没有一句 ≥25 字？全是中等长度就砍一句、拉长一句。',
     '9. 结尾那个词是具体物件还是抽象名词？是抽象名词就换掉；读起来像金句就砍掉重写。',
     '10. 数一遍比喻：超过一个，或用了「仿佛/似乎」，就全部删掉。',
+    `11. 标题字数：数一遍，必须 ${range.min}–${range.max} 字；超了就砍掉修饰，别交付一个超长的。`,
   ];
 
   const existing = (style?.existingTitles ?? []).filter((t) => t.trim().length > 0);
   if (existing.length > 0) {
     lines.push(`以下标题已被同批照片占用，禁止重复或近义改写：${existing.slice(-40).join('、')}`);
+  }
+  if (crowded.length > 0) {
+    lines.push(
+      `这批已经用过这些句式：${crowded.join('、')}。用得最多的那种不要再用了，换一种（地名+时刻 / 单一实物词 / 无题编号 / 并置）。`,
+    );
   }
 
   // 0.5.7：版面要求优先于段落长度 —— 用户拼好的那一页只放得下几行字

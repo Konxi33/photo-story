@@ -38,6 +38,7 @@ import {
   ROUTES,
   STORAGE_KEY_APP_SETTINGS,
 } from '@/config/app';
+import { DEFAULT_TITLE_RANGE, clampTitleRange } from '@/config/styles';
 import { analyzePhotoLocally, runBatchAnalysis } from '@/lib/ai';
 import { deriveSceneTitle, isPropLabelTitle } from '@/lib/ai/polish';
 import { pageHint } from '@/lib/export/blocks';
@@ -54,6 +55,7 @@ import type {
   PhotoError,
   Project,
   StoryLength,
+  TitleRange,
   TitleStyle,
 } from '@/types/domain';
 
@@ -64,6 +66,8 @@ interface GenSettings {
   timeoutMs: number;
   maxRetries: number;
   titleStyle: TitleStyle;
+  /** 0.8.2 补丁：标题字数范围，用户可在写作面板里改 */
+  titleRange: TitleRange;
   narrativeStyle: NarrativeStyle;
   storyLength: StoryLength;
 }
@@ -116,6 +120,7 @@ export default function WorkbenchPage() {
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxRetries: DEFAULT_MAX_RETRIES,
     titleStyle: 'literary',
+    titleRange: DEFAULT_TITLE_RANGE,
     narrativeStyle: 'essay',
     storyLength: 'medium',
   });
@@ -159,6 +164,7 @@ export default function WorkbenchPage() {
           timeoutMs: saved.timeoutMs,
           maxRetries: saved.maxRetries,
           titleStyle: saved.titleStyle ?? 'literary',
+          titleRange: clampTitleRange(saved.titleRange),
           narrativeStyle: saved.narrativeStyle ?? 'essay',
           storyLength: saved.storyLength ?? 'medium',
         });
@@ -549,6 +555,7 @@ export default function WorkbenchPage() {
         timeoutMs: genSettings.timeoutMs,
         style: {
           titleStyle: genSettings.titleStyle,
+          titleRange: genSettings.titleRange,
           narrativeStyle: genSettings.narrativeStyle,
           storyLength: genSettings.storyLength,
           existingTitles: photos
@@ -789,6 +796,7 @@ export default function WorkbenchPage() {
         timeoutMs: genSettings.timeoutMs,
         style: {
           titleStyle: genSettings.titleStyle,
+          titleRange: genSettings.titleRange,
           narrativeStyle: genSettings.narrativeStyle,
           storyLength: genSettings.storyLength,
           existingTitles: [],
@@ -1143,6 +1151,7 @@ export default function WorkbenchPage() {
         onOpenChange={setStyleOpen}
         value={{
           titleStyle: genSettings.titleStyle,
+          titleRange: genSettings.titleRange,
           narrativeStyle: genSettings.narrativeStyle,
           storyLength: genSettings.storyLength,
         }}

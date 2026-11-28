@@ -32,9 +32,20 @@ export type NarrativeStyle =
 /** 故事字数档位 */
 export type StoryLength = 'short' | 'medium' | 'long';
 
+/**
+ * 标题字数范围（0.8.2 补丁）。
+ * max 是硬约束：清洗层一定会把标题截到这个数以内；
+ * min 是给模型的要求，本地不硬撑——一个词的写法本来就可能只有一两个字。
+ */
+export interface TitleRange {
+  min: number;
+  max: number;
+}
+
 /** 生成风格选项（随请求下发，不落库到项目） */
 export interface AnalyzeStyleOptions {
   titleStyle?: TitleStyle;
+  titleRange?: TitleRange;
   narrativeStyle?: NarrativeStyle;
   storyLength?: StoryLength;
   /** 同批次已用标题，要求模型避开重复 */
@@ -297,6 +308,8 @@ export interface AppSettings {
 
   /** 0.3.0：生成风格默认值 */
   titleStyle?: TitleStyle;
+  /** 0.8.2 补丁：标题字数范围（设置里可自定义） */
+  titleRange?: TitleRange;
   narrativeStyle?: NarrativeStyle;
   storyLength?: StoryLength;
 
