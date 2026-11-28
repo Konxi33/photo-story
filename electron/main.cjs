@@ -1,4 +1,4 @@
-// electron/main.cjs
+﻿// electron/main.cjs
 // Electron 主进程：启动 Next.js standalone server → 等待就绪 → 打开窗口。
 // 命名为 .cjs 是因为 package.json 里是 "type": "module"。
 
@@ -409,7 +409,7 @@ let updateCheckCache = null; // { at: number, payload: object }
  * 否则已经装了同版本旧包的人永远得到「已是最新」。
  * 每次重新打包都要改这里，并且 Release 正文里写同值的 <!-- build:20261128b -->。
  */
-const BUILD_STAMP = '20261128d';
+const BUILD_STAMP = '20261128e';
 
 const {
   parseVersionParts,

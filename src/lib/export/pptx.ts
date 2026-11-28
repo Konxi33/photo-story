@@ -112,7 +112,10 @@ export async function exportToPptx(
 
   const Pptx = await loadPptx();
   const pptx = new Pptx();
-  pptx.layout = 'LAYOUT_16x9';
+  // 0.8.5：必须用 LAYOUT_WIDE（13.333×7.5 英寸）。原来写 'LAYOUT_16x9'，
+  // 但 pptxgenjs 的 LAYOUT_16x9 是 10×5.63 英寸 —— 所有 x/y 都按 13.333 算，
+  // 结果图片比框宽、右栏文字直接跑到幻灯片外面被裁掉（用户说的「PPT 一坨」）。
+  pptx.layout = 'LAYOUT_WIDE';
   pptx.author = '照片故事';
   pptx.title = project.name;
 
@@ -152,6 +155,42 @@ export async function exportToPptx(
   );
 
   const frameSettings = params.settings;
+  // 0.8.5：封面得有一张照片。之前封面只有书名+张数，转成 PDF 一看大半页是空的。
+  const coverPhoto = photos[0];
+  if (coverPhoto) {
+    try {
+      const asset = await AssetRepository.get(coverPhoto.id, 'doc');
+      if (asset) {
+        const framed =
+          !frameSettings || (frameSettings.frame === 'none' && !frameSettings.watermark)
+            ? asset.blob
+            : await applyFrame(asset.blob, {
+                style: frameSettings.frame ?? 'none',
+                watermark: frameSettings.watermark,
+                device: frameSettings.watermarkText,
+                author: frameSettings.watermarkAuthor,
+                params: coverPhoto.analysis?.params,
+              });
+        const encodedCover = await encodeImageForDocx(
+          framed,
+          edge,
+          framed === asset.blob ? coverPhoto.id : coverPhoto.id + ':frame',
+        );
+        const box = { x: MARGIN, y: 2.85, w: SLIDE_W - MARGIN * 2, h: 3.9 };
+        const size = fitBox(encodedCover, box);
+        cover.addImage({
+          data: 'image/jpeg;base64,' + bytesToBase64(encodedCover.data),
+          x: box.x + (box.w - size.w) / 2,
+          y: box.y + (box.h - size.h) / 2,
+          w: size.w,
+          h: size.h,
+        });
+      }
+    } catch {
+      /* 封面图失败不影响导出 */
+    }
+  }
+
   let done = 0;
   for (const photo of photos) {
     let encoded: EncodedImage | null = null;
@@ -193,121 +232,99 @@ export async function exportToPptx(
       });
     }
 
-    const textX = imgBox.x + imgBox.w + 0.5;
+    // 0.8.5：右栏改成「按顺序往下排」，每块自己占多高算清楚，不再用一堆写死的 y
+    // —— 之前标题（y0.8,h1.0）和参数行（y1.62）叠在一起，正文也压着技术档，
+    // 转成 PDF 一看就是一坨（用户：「PPT 我从来没看过」）。
+    const textX = imgBox.x + imgBox.w + 0.55;
     const textW = SLIDE_W - textX - MARGIN;
     const a = photo.status === 'success' ? photo.analysis : undefined;
+    let cursor = MARGIN;
 
-    slide.addText(a?.title || photo.fileName, {
-      x: textX,
-      y: 0.8,
-      w: textW,
-      h: 1.0,
-      fontSize: 26,
-      bold: true,
-      color: '1A1A1A',
-      fontFace: '宋体',
-    });
+    const put = (
+      text: string,
+      h: number,
+      opts: { size: number; bold?: boolean; color?: string; gap?: number; lines?: number } = {
+        size: 11,
+      },
+    ): void => {
+      slide.addText(text, {
+        x: textX,
+        y: cursor,
+        w: textW,
+        h,
+        fontSize: opts.size,
+        bold: opts.bold ?? false,
+        color: opts.color ?? '3A3A3A',
+        fontFace: '宋体',
+        valign: 'top',
+        lineSpacingMultiple: opts.lines ?? 1.2,
+      });
+      cursor += h + (opts.gap ?? 0.12);
+    };
 
-    slide.addText(a?.story || '（待补充）', {
-      x: textX,
-      y: 1.9,
-      w: textW,
-      h: 3.0,
-      fontSize: 12,
-      color: a?.story ? '3A3A3A' : '8A8A8A',
-      fontFace: '宋体',
-      valign: 'top',
-      lineSpacingMultiple: 1.3,
-    });
+    const titleText = (a?.title || photo.fileName || '').trim();
+    if (titleText) put(titleText, 0.72, { size: 24, bold: true, color: '1A1A1A', gap: 0.06 });
 
-    if (a) {
-      // 0.3.2：参数条 + 评分徽标
-      const paramLine = a.params
-        ? [a.params.focalLength, a.params.aperture, a.params.shutter, a.params.iso, a.params.colorGrade]
-            .filter((v) => v && v.trim())
-            .join('   ')
-        : '';
+    if (a?.params) {
+      const paramLine = [a.params.focalLength, a.params.aperture, a.params.shutter, a.params.iso]
+        .filter((v) => v && v.trim())
+        .join('  ·  ');
+      if (paramLine) put(paramLine, 0.3, { size: 9, color: '8A8A8A', gap: 0.18 });
+    }
 
-      if (paramLine) {
-        slide.addText(paramLine, {
-          x: textX,
-          y: 1.62,
-          w: textW,
-          h: 0.3,
-          fontSize: 9,
-          color: '8A8A8A',
-          fontFace: '宋体',
-        });
-      }
+    const storyText = (a?.story ?? '').trim();
+    if (storyText) put(storyText, 2.55, { size: 11, gap: 0.16 });
 
-      if (a.score) {
-        slide.addText(a.score.overall.toFixed(1), {
-          x: textX,
-          y: 6.28,
-          w: 0.95,
-          h: 0.5,
-          fontSize: 20,
-          bold: true,
-          color: '1A1A1A',
-          fontFace: '宋体',
-          valign: 'middle',
-        });
-        slide.addText(
-          '/100   构图 ' +
-            a.score.breakdown.composition.toFixed(1) +
-            '   光线 ' +
-            a.score.breakdown.lighting.toFixed(1) +
-            '   调色 ' +
-            a.score.breakdown.color.toFixed(1),
-          {
-            x: textX + 0.9,
-            y: 6.28,
-            w: textW - 0.9,
-            h: 0.5,
-            fontSize: 8.5,
-            color: '6B6B6B',
-            fontFace: '宋体',
-            valign: 'middle',
-          },
-        );
-      }
+    if (a?.score) {
+      put(
+        '总分 ' +
+          a.score.overall.toFixed(1) +
+          '　构图 ' +
+          a.score.breakdown.composition.toFixed(0) +
+          '　光线 ' +
+          a.score.breakdown.lighting.toFixed(0) +
+          '　调色 ' +
+          a.score.breakdown.color.toFixed(0),
+        0.32,
+        { size: 10, color: '1A1A1A', gap: 0.14 },
+      );
+    }
 
-      const tech = [
-        ['构图', a.technique.composition],
-        ['光线', a.technique.lighting],
-        ['色彩', a.technique.color],
-        ['镜头', a.technique.lens],
-        ['后期', a.technique.post],
-      ]
-        .filter(([, v]) => v && v.trim())
-        .map(([k, v]) => k + ' · ' + v)
-        .join('\n');
+    const bullets = [
+      ...(a?.whyGood ?? []).slice(0, 2),
+      ...(a?.improve ?? []).slice(0, 2),
+    ].filter((v) => v && v.trim());
+    if (bullets.length > 0) {
+      put(
+        bullets.map((v) => '· ' + v).join('\n'),
+        Math.min(1.5, 0.34 * bullets.length + 0.1),
+        { size: 9.5, color: '3A3A3A', lines: 1.15, gap: 0.14 },
+      );
+    }
 
-      if (tech) {
-        slide.addText(tech, {
-          x: textX,
-          y: 4.9,
-          w: textW,
-          h: 2.0,
-          fontSize: 9,
-          color: '6B6B6B',
-          fontFace: '宋体',
-          valign: 'top',
-          lineSpacingMultiple: 1.15,
-        });
-      }
+    const tech = a
+      ? [
+          ['构图', a.technique.composition],
+          ['光线', a.technique.lighting],
+          ['色彩', a.technique.color],
+        ]
+          .filter(([, v]) => v && v.trim())
+          .map(([k, v]) => k + ' · ' + v)
+          .join('\n')
+      : '';
+    if (tech && SLIDE_H - MARGIN - cursor > 0.8) {
+      put(tech, Math.min(SLIDE_H - MARGIN - cursor, 1.5), { size: 8.5, color: '6B6B6B', lines: 1.12 });
+    }
 
-      if (a.tags.length > 0) {
-        slide.addText(a.tags.map((t) => '#' + t).join('  '), {
-          x: textX,
-          y: 6.95,
-          w: textW,
-          h: 0.35,
-          fontSize: 9,
-          color: '8A8A8A',
-          fontFace: '宋体',
-        });
-      }
+    if (a && a.tags.length > 0 && SLIDE_H - MARGIN - cursor > 0.34) {
+      put(
+        a.tags
+          .slice(0, 4)
+          .map((t) => '#' + t)
+          .join(' '),
+        0.3,
+        { size: 8.5, color: '8A8A8A' },
+      );
     }
 
     done += 1;
