@@ -25,7 +25,6 @@ import {
 import {
   type PageStyle,
   type TypeSpec,
-  figureNumber,
   chapterNumber,
   tidyReading,
 } from './typography';
@@ -129,11 +128,17 @@ function chapterBlockHeight(env: PageEnv, chapter: NonNullable<FigureInput['chap
   return lines * lineHeightMm(typeFont(env, s.chapterTitle)) + 5;
 }
 
-/** 图注文案：`— 图 01 · 标题 · 参数`，破折线把图注和正文拉开层级 */
+/**
+ * 图注文案。
+ * 0.8.3：以前这里是「— 01 标题 · 参数」，而标题已经印在图上方了 ——
+ * 同一行字在一页里出现两遍，页面看着又乱又重复（用户原话「标题旁有个小数字」）。
+ * 现在图注只承担标题没说的信息：拍摄参数。没有参数就干脆不印图注。
+ */
 export function captionText(index: number, s: PageStyle, title: string, specLine?: string): string {
-  const head = `—　${figureNumber(index, s)}　${title}`;
-  // 分隔点用不换行空格黏在前文上：否则窄图注会把「·」甩到下一行行首（避头尾）
-  return specLine ? `${head}\u00a0·　${specLine}` : head;
+  void index;
+  void s;
+  void title;
+  return specLine ? `—　${specLine}` : '';
 }
 
 /**
@@ -181,14 +186,23 @@ export function planFigurePage(input: FigureInput): {
 
   const baseTitle = normalizeText(input.title);
   const aspect = input.imgW > 0 && input.imgH > 0 ? input.imgW / input.imgH : 3 / 2;
-  const imageMaxH = env.contentH * s.photo.maxHeightRatio;
   // 图注宽度：跟着图走，但最窄 54mm、最宽 112mm（长图注读不动）
   const capTextFull = captionText(input.index, s, baseTitle, input.specLine);
-  // 标题与正文栏共用左边线，图号占掉一部分宽度：按保守宽度测行数，宁可估多一行
-  const titleWidth = Math.max(40, bodyWidth - 22);
+  // 标题与正文栏共用左边线；0.8.3 起标题行不再挤一个图号，宽度按正文栏保守估
+  const titleWidth = Math.max(40, bodyWidth - 8);
   const titleLines = measureLines(baseTitle, titleWidth, typeFont(env, s.pageTitle));
   const titleMm = Math.max(1, titleLines) * lineHeightMm(typeFont(env, s.pageTitle)) + GAP_TITLE_FIG;
   const capMaxMm = usableH * CAP_MAX_RATIO;
+
+  // 0.8.3：**照片优先吃满剩下的高度**。
+  // 老算法把图片封顶在「版心高 × maxHeightRatio」（极简画册 0.7，横构图还被宽度卡成 44%），
+  // 于是图下面空半页 —— 用户说的「很多空的白区域」。现在：先把文字高度算清，
+  // 剩下的高度全给照片（仍受版心宽度与 0.92 页高约束）。
+  // 只有「刻意要小图」的版式（文艺随笔 0.5 / 技术档案 0.46）保留上限。
+  const styleCapH =
+    s.photo.maxHeightRatio >= 0.65 ? Number.POSITIVE_INFINITY : env.contentH * s.photo.maxHeightRatio;
+  const byWidthH = contentW / aspect;
+  const capWidthFull = Math.min(Math.max(54, contentW), Math.min(112, contentW));
 
   let best: ReturnType<typeof planFigurePage> | null = null;
 
@@ -197,47 +211,41 @@ export function planFigurePage(input: FigureInput): {
     const bodyLines = storyText ? measureLines(storyText, bodyWidth, bodyFont, { firstIndentEm: indentEm }) : 0;
     const bodyNeed = bodyLines * lineHeightMm(bodyFont);
 
-    for (const shrink of [1, 0.92, 0.84]) {
-      // 先按宽高比定出「图能多大」，再看剩下的高度够不够
-      let imgH = Math.min(imageMaxH * shrink, env.contentH * 0.8);
-      // 按宽度上限（版心）收一次
-      if (imgH * aspect > contentW) imgH = contentW / aspect;
-      const imgW = imgH * aspect;
+    const capNeedRawFull = textMm(env, capTextFull, capWidthFull, s.caption).mm;
+    const capNeed = Math.min(capNeedRawFull, capMaxMm) + GAP_FIG_CAP;
+    const fixed = chapterMm + titleMm + capNeed + (storyText ? GAP_CAP_BODY + bodyNeed : 0) + GAP_BODY_META;
+    const roomForImage = usableH - fixed;
+    const preferred = Math.min(byWidthH, roomForImage, env.contentH * 0.92, styleCapH);
+    const useH = Math.max(MIN_IMAGE_MM, preferred);
+    const useW = useH * aspect;
+    const total = fixed + useH;
 
-      const capWidth = Math.min(Math.max(54, imgW), Math.min(112, contentW));
+    if (total <= usableH + 0.2) {
+      const capWidth = Math.min(Math.max(54, useW), Math.min(112, contentW));
       const capNeedRaw = textMm(env, capTextFull, capWidth, s.caption).mm;
-      const capNeed = Math.min(capNeedRaw, capMaxMm) + GAP_FIG_CAP;
-      const fixed = chapterMm + titleMm + capNeed + (storyText ? GAP_CAP_BODY + bodyNeed : 0) + GAP_BODY_META;
-      const roomForImage = usableH - fixed;
-      const useH = Math.min(imgH, Math.max(MIN_IMAGE_MM, roomForImage));
-      const useW = useH * aspect;
-      const total = fixed + useH;
-
-      if (total <= usableH + 0.2) {
-        const metaRoom = Math.max(0, usableH - total - GAP_BODY_META);
-        const metaWidth = Math.min(bodyWidth, useW);
-        const meta = buildMeta(input, env, metaRoom, metaWidth);
-        const capFit = fitText(capTextFull, capWidth, capNeedRaw > capMaxMm ? capMaxMm : capNeedRaw, typeFont(env, s.caption));
-        const imgLeft = s.photo.align === 'center' ? Math.max(0, (contentW - useW) / 2) : 0;
-        best = {
-          imgW: useW,
-          imgH: useH,
-          imgLeft,
-          capWidth,
-          bodyWidth,
-          // 正文跟图对齐同一条左边线，但不出右边版心
-          bodyLeft: Math.max(0, Math.min(imgLeft, contentW - bodyWidth)),
-          body,
-          bodyText: storyText,
-          bodyMm: bodyNeed,
-          capText: capFit.text,
-          meta,
-          chapterMm,
-          titleMm,
-          totalMm: total,
-        };
-        break;
-      }
+      const metaRoom = Math.max(0, usableH - total - GAP_BODY_META);
+      const metaWidth = Math.min(bodyWidth, useW);
+      const meta = buildMeta(input, env, metaRoom, metaWidth);
+      const capFit = fitText(capTextFull, capWidth, capNeedRaw > capMaxMm ? capMaxMm : capNeedRaw, typeFont(env, s.caption));
+      const imgLeft = s.photo.align === 'center' ? Math.max(0, (contentW - useW) / 2) : 0;
+      best = {
+        imgW: useW,
+        imgH: useH,
+        imgLeft,
+        capWidth,
+        bodyWidth,
+        // 正文跟图对齐同一条左边线，但不出右边版心
+        bodyLeft: Math.max(0, Math.min(imgLeft, contentW - bodyWidth)),
+        body,
+        bodyText: storyText,
+        bodyMm: bodyNeed,
+        capText: capFit.text,
+        meta,
+        chapterMm,
+        titleMm,
+        totalMm: total,
+      };
+      break;
     }
     if (best) break;
   }
@@ -356,10 +364,11 @@ export function renderFigurePage(input: FigureInput): string {
   const plan = planFigurePage(input);
   const html: string[] = [];
 
-  // 整块内容在版心里垂直微调 —— 空白全留底下会像「排崩了」，
-  // 把富余高度的 40% 放到上方，剩下留底，观感才像画册。
+  // 0.8.3：整块内容在版心里**居中**。
+  // 以前把富余高度的 40% 放上方、其余全留底，横构图（宽度卡死、只占 44% 页高）就成了
+  // 「上面一小条、下面半页白」—— 看着像排崩了。现在上下各分一半，留白看起来是版式取舍。
   const slack = env.contentH - plan.totalMm;
-  const topPad = slack > 24 ? Math.min(slack * 0.4, 46) : 0;
+  const topPad = slack > 6 ? Math.min(slack * 0.5, 96) : 0;
   html.push(`<section class="pg">`);
   html.push(`<div class="pg-flow"${topPad > 0 ? ` style="padding-top:${topPad.toFixed(1)}mm"` : ''}>`);
 
@@ -376,7 +385,7 @@ export function renderFigurePage(input: FigureInput): string {
   const titleChars = [...normalizeText(input.title)].length;
   const titleScale = titleChars > 20 ? 0.72 : titleChars > 14 ? 0.82 : titleChars > 10 ? 0.92 : 1;
   const titlePt = (s.pageTitle.sizePt * titleScale).toFixed(1);
-  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><span class="pg-no">${figureNumber(input.index, s)}</span><h2 class="pg-title" style="font-size:${titlePt}pt">${escapeHtml(normalizeText(input.title))}</h2></div>`);
+  html.push(`<div class="pg-head" style="margin-left:${plan.bodyLeft.toFixed(1)}mm;width:${Math.max(plan.bodyWidth, plan.imgW).toFixed(1)}mm"><h2 class="pg-title" style="font-size:${titlePt}pt">${escapeHtml(normalizeText(input.title))}</h2></div>`);
 
   if (input.url) {
     const matte = s.photo.matteMm > 0 ? ` padding:${s.photo.matteMm}mm;` : '';
@@ -449,7 +458,12 @@ export function designCss(env: PageEnv): string {
     c === 'soft' ? env.tint.inkSoft : c === 'line' ? env.tint.line : c === 'accent' ? (s.accent ?? env.tint.ink) : env.tint.ink;
 
   return `
-  .pg { position: relative; height: ${env.contentH.toFixed(2)}mm; overflow: visible;
+  /* 0.8.3：一页 = 一张纸。铺满整张纸并自己留出页边距，
+     这样米白/灰色/夜色纸能铺到纸边（以前只铺版心，四周永远是打印机的白纸）。 */
+  .pg { position: relative; width: var(--paper-w, ${(env.contentW + 44).toFixed(1)}mm);
+    height: var(--paper-h, ${(env.contentH + 44).toFixed(1)}mm);
+    padding: var(--m-top, 22mm) var(--m-right, 22mm) var(--m-bottom, 22mm) var(--m-left, 22mm);
+    background: var(--paper, #fff); overflow: visible;
     display: block; page-break-inside: avoid; break-inside: avoid; }
   .pg + .pg { break-before: page; page-break-before: always; }
   .pg-flow { display: block; }
@@ -457,8 +471,7 @@ export function designCss(env: PageEnv): string {
   .pg-chapter-no { margin: 0; color: ${color(s.chapterNo.color)}; ${t(s.chapterNo)} text-transform: none; }
   .pg-chapter-title { margin: 0; color: ${color(s.chapterTitle.color)}; ${t(s.chapterTitle)} }
   .pg-chapter-note { margin: 0 0 0 auto; color: ${color(s.chapterNote.color)}; ${t(s.chapterNote)} }
-  .pg-head { display: flex; align-items: baseline; gap: 4mm; margin: 0 0 ${GAP_TITLE_FIG}mm; break-inside: avoid; break-after: avoid; }
-  .pg-no { color: ${color(s.captionNum.color)}; ${t(s.captionNum)} font-variant-numeric: tabular-nums; }
+  .pg-head { display: block; margin: 0 0 ${GAP_TITLE_FIG}mm; break-inside: avoid; break-after: avoid; }
   /* 标题：两行时按词意均衡断行，不许第二行只剩一个字（0.7.5） */
   .pg-title { margin: 0; color: ${color(s.pageTitle.color)}; ${t(s.pageTitle)} overflow-wrap: anywhere;
     text-wrap: balance; text-align: left; max-width: ${Math.min(env.contentW, 118).toFixed(1)}mm; }
@@ -493,7 +506,7 @@ export function designCss(env: PageEnv): string {
   .pg-folio { position: absolute; bottom: 0; right: 0; margin: 0; height: ${FOLIO_H_MM}mm;
     line-height: ${FOLIO_H_MM}mm; color: ${color(s.folio.color)};
     ${t(s.folio)} font-variant-numeric: tabular-nums; }
-  .pg-chapter-page { padding-top: 62mm; }
+  .pg-chapter-page { padding-top: calc(var(--m-top, 22mm) + 62mm); }
   .cp-block { max-width: 120mm; }
   .cp-title { margin: 3mm 0 0; color: ${env.tint.ink}; ${t(s.chapterTitle)} }
   .cp-rule { width: 28mm; height: 0.4pt; background: ${env.tint.line}; margin: 7mm 0; }

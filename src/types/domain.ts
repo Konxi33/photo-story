@@ -282,6 +282,12 @@ export interface ExportSettings {
   pageStyle?: 'album' | 'essay' | 'archive';
   /** 0.6.4：照片圆角（mm）。画册惯例是 0，商业画册可以给 2–4mm */
   photoRadius?: number;
+  /**
+   * 0.8.3：封面上要不要印导出日期。
+   * 打印/送人的册子常常不想让「2026 年 11 月 28 日」占据封面（用户明确要求可选）。
+   * 不填 = 印（保持老行为）。
+   */
+  showDate?: boolean;
 }
 
 /** 相框样式 */

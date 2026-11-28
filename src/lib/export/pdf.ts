@@ -451,7 +451,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
                  return `
              <figure class="ov-cell">
                ${small ? `<img src="${small}" alt="">` : '<div class="ov-ph"></div>'}
-               <figcaption><b>${pad2(index + 1)}</b>${escapeHtml(ovTitle)}</figcaption>
+               <figcaption>${settings.showIndex === false ? '' : `<b>${pad2(index + 1)}</b>`}${escapeHtml(ovTitle)}</figcaption>
              </figure>`;
                },
              )
@@ -492,7 +492,7 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
         <h1>${escapeHtml(project.name)}</h1>
         <div class="rule short left"></div>
         <p class="sub">照片故事</p>
-        <p class="meta">${formatDate(new Date())}　·　共 ${photos.length} 张</p>
+        ${settings.showDate === false ? '' : `<p class="meta">${formatDate(new Date())}　·　共 ${photos.length} 张</p>`}
       </div>
     </section>`;
 
@@ -502,8 +502,11 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   // 一起超过一页，封面被拆成「照片一页 + 标题一页」（A5 + 装订线的用例实测 3 页）。
   // 留 96mm 给标题块（27pt 书名 + 副题 + 日期 + 页边距，实测约 60mm，余量给长书名折行）。
   const coverPhotoH = Math.max(60, Math.min(148, Math.round(layout.contentH - 96)));
-  // 版面边距写进 @page：Chromium 里 CSS 的 @page margin 优先于打印设置，
-  // 之前写 margin:0 会让自定义边距与装订线全部失效（正文直接顶到纸边）。
+  // 0.8.3：整张纸的尺寸。以前只把纸色刷在「版心」里，四周页边距是打印机的白纸，
+  // 于是选了米白/夜色也只看到中间一块色 —— 用户说「我选米白色背景但背景还是白色」。
+  // 现在 @page 的边距交给每页自己的 padding，页面盒子铺满整张纸，纸色才能铺满。
+  const paperW = Math.round((layout.contentW + layout.marginMm * 2 + layout.gutterMm) * 10) / 10;
+  const paperH = Math.round((layout.contentH + layout.marginMm * 2) * 10) / 10;
   const mSide = `${layout.marginMm}mm`;
   const mLeft = `${layout.marginMm + layout.gutterMm}mm`;
 
@@ -517,21 +520,36 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
     --ink: ${tint.ink};
     --ink-soft: ${tint.inkSoft};
     --line: ${tint.line};
+    /* 0.8.3：纸张几何也做成变量，页面盒子与版心共用同一套数字，不会两处写错 */
+    --paper-w: ${paperW}mm;
+    --paper-h: ${paperH}mm;
+    --m-top: ${mSide};
+    --m-right: ${mSide};
+    --m-bottom: ${mSide};
+    --m-left: ${mLeft};
   }
-  /* 页边距与纸张由 printToPDF 传入，这里只声明纸张大小，避免两套边距打架 */
+  /* 0.8.3：@page 零边距、整页由 .page/.pg 自己撑满并加内边距。
+     这样纸色（含夜色）可以铺到纸边，装订线也仍然只加在左侧。 */
   @page { size: ${layout.paper.toUpperCase()} ${layout.landscape ? 'landscape' : 'portrait'};
-    margin: ${mSide} ${mSide} ${mSide} ${mLeft}; }
+    margin: 0; }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background: var(--paper); }
   body { color: var(--ink); background: var(--paper);
     font-family: ${bodyFont.css};
     font-size: 11pt; line-height: 1.7; -webkit-print-color-adjust: exact; }
-  .page { break-inside: auto; orphans: 2; widows: 2; }
+  /* 每一页 = 一张纸：铺满整张纸、内缩页边距、纸色打底 */
+  .page { width: var(--paper-w); height: var(--paper-h);
+    padding: var(--m-top) var(--m-right) var(--m-bottom) var(--m-left);
+    background: var(--paper); break-inside: auto; orphans: 2; widows: 2; }
   /* 0.5.7：一张照片和它的全部文字必须落在同一页，不许被拆成两页 */
   .page.figure-page { break-inside: avoid; }
+  /* 总览与卷首语可能超过一页（照片多、文字长），这两类允许自然长高，
+     其余页面固定一页高，纸色才能铺满、翻页位置也稳定。 */
+  .page.ov, .page.prose { height: auto; min-height: var(--paper-h); }
   .page.break { break-before: page; }
+  .page.blank { break-before: page; }
   .cover { display:flex; flex-direction:column; justify-content:flex-start;
-    min-height: ${coverMinH}mm; text-align:left; }
+    text-align:left; }
   .cover-photo { width:100%; height:${coverPhotoH}mm; overflow:hidden; margin:0 0 14mm; }
   .cover-photo img { width:100%; height:100%; object-fit:cover; display:block; }
   .cover-block { display:block; }
@@ -610,15 +628,18 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .card-line { margin:0 0 2px; font-size:9pt; line-height:1.5; color:#2a2a2a; }
 
   /* 0.6.0 积木排版：一页 = 一张 12 列 × 24 行的画布，每个积木绝对定位在格子上。
-     外层高度写死成版心高度（由 pdf-grid.ts 内联），所以整页恰好占一页；
-     break-after:page 让每张照片独立成页，最后一页不补空页。 */
-  .gpage { position:relative; overflow:hidden; break-inside:avoid; break-after:page; }
-  .gpage:last-child { break-after:auto; }
+     0.8.3：外层 .gpage-sheet 是一张纸（纸色铺满 + 页边距），内层 .gpage 保持版心坐标，
+     所以坐标不用跟着页边距改一行；break 由外层 .page 负责。 */
+  .gpage-sheet { overflow: hidden; }
+  .gpage { position: relative; overflow: hidden; break-inside: avoid; }
+  .gpage:last-child { break-after: auto; }
   .gitem { position:absolute; overflow:hidden; }
   .gitem-text { padding:0.4mm 0.6mm; }
   .gitem figure { margin:0; height:100%; display:flex; align-items:center; justify-content:center; }
   .gitem figure img { max-width:100%; max-height:100%; object-fit:contain; }
-  .gph { width:100%; height:100%; background:#f2efe9; }
+  /* 0.8.3：圆角在积木路径也生效（以前只有竖排版照片页有），封面/总览不跟它走 */
+  .gpage figure img, .gpage .gph { border-radius: var(--photo-radius, 0); }
+  .gph { width:100%; height:100%; background: var(--line); }
   /* 积木里的字号以格子规划出的 fontPt 为基准（内联在 .gitem 上），子元素一律按 em 缩放。
      下面每个块的行高都必须和 pdf-grid.ts 里的测量口径一一对应（1.25/1.45/1.65…），
      否则「量出来 5 行、画出来 6 行」，最后一行又会被 overflow:hidden 切掉。 */

@@ -389,7 +389,8 @@ function blockInner(plan: ItemPlan, pt: number, ctx: ItemContext): string {
 
   switch (item.id) {
     case 'index':
-      return `<p class="idx">${pad2(ctx.index)}</p>`;
+      // 0.8.3：序号受导出设置「显示序号」控制 —— 用户关掉了序号，排版台存的版式也不许照印
+      return ctx.settings.showIndex === false ? '' : `<p class="idx">${pad2(ctx.index)}</p>`;
 
     case 'title': {
       const raw = (a?.title || ctx.photo.fileName || '').trim();
@@ -608,9 +609,14 @@ export function buildGridPhotoPage(params: GridPageParams): string {
   // 高度写死成 mm：不靠内容撑开，一张照片页永远只占一页。
   // `break` 类沿用竖排版那套（.page.break { break-before: page }）：和上一个板块的
   // break-after 挨在一起时，CSS 分页会合并成一次强制分页，不会多出空白页。
+  // 0.8.3：外面再包一层 .page —— 纸色要铺满整张纸（含页边距），而积木是按版心坐标
+  // 绝对定位的，所以坐标容器保持原尺寸放在内层，外层只负责「一张纸」。
   const breakClass = params.breakBefore === false ? '' : ' break';
+  const radius = settings.photoRadius != null && settings.photoRadius > 0 ? `--photo-radius:${settings.photoRadius}mm;` : '';
   return `
-    <section class="page gpage${breakClass}" style="position:relative;width:${mm(params.contentCm)};height:${mm(pageHeightCm)}">
+    <section class="page gpage-sheet${breakClass}" style="${radius}">
+      <div class="gpage" style="position:relative;width:${mm(params.contentCm)};height:${mm(pageHeightCm)}">
 ${items}
+      </div>
     </section>`;
 }

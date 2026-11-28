@@ -155,6 +155,8 @@ export function ExportDialog({
   // 0.6.4：版式预设与照片圆角
   const [pageStyleId, setPageStyleId] = useState<'album' | 'essay' | 'archive'>('album');
   const [photoRadius, setPhotoRadius] = useState<0 | 2 | 4>(0);
+  /** 0.8.3：封面上要不要印导出日期（送人的册子常常不想让日期占住封面） */
+  const [showDate, setShowDate] = useState(true);
   const [prefaceTitle, setPrefaceTitle] = useState('');
   const [preface, setPreface] = useState('');
   const [afterword, setAfterword] = useState('');
@@ -262,6 +264,7 @@ export function ExportDialog({
     setPaper((s.paper as PaperTintId) ?? 'white');
     setPageStyleId((s.pageStyle as 'album' | 'essay' | 'archive') ?? 'album');
     setPhotoRadius(((s.photoRadius ?? 0) as 0 | 2 | 4));
+    setShowDate(s.showDate !== false);
     setPrefaceTitle(s.prefaceTitle ?? '');
     setPreface(s.preface ?? '');
     setAfterword(s.afterword ?? '');
@@ -363,6 +366,7 @@ export function ExportDialog({
         useCanvas: useStudio,
         pageStyle: pageStyleId,
         photoRadius,
+        showDate,
       },
       blocks,
     );
@@ -986,6 +990,18 @@ export function ExportDialog({
               </SettingRow>
               <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
                 摄影画册惯例是直角；生活类册子可以给一点圆角
+              </p>
+
+              {/* 0.8.3：封面日期可选 —— 送人的册子不想让「导出日期」印在封面上 */}
+              <SettingRow label="封面印日期">
+                <Switch
+                  checked={showDate}
+                  onCheckedChange={setShowDate}
+                  aria-label="封面上印导出日期"
+                />
+              </SettingRow>
+              <p className="-mt-1 mb-1 text-[11px] leading-relaxed text-ink-faint">
+                关掉后封面只留书名与张数
               </p>
 
               <div className="mt-2 grid gap-2">

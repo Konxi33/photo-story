@@ -30,7 +30,7 @@ import type { ExportSettings, Photo, Project } from '@/types/domain';
 import { padForBook } from '@/lib/book/signature';
 
 import { buildAppendix } from './appendix';
-import { normalizeExportSettings } from './bookStyle';
+import { normalizeExportSettings, paperTintOption } from './bookStyle';
 import { buildProsePage } from './prose';
 // 0.6.1：流式排版（buildPhotoSection）已不再用于导出 —— 它保证不了「一张图和它的文字不跨页」。
 // 所有单页现在都走 buildGridPhotoSection（12×24 网格表），需要老观感时由 resolveLayout 折成竖排网格。
@@ -74,6 +74,8 @@ export function buildDocument(params: BuildDocumentParams): Document {
         // 节分隔本身就会另起一页，封面里不能再补一个分页，否则多出一页空白
         endWithBreak: false,
         contentWidthCm: exportContentCm(settings),
+        // 0.8.3：封面日期可选（送人的册子不想让导出日期占住封面）
+        showDate: settings.showDate !== false,
       }),
     );
   }
@@ -104,8 +106,11 @@ export function buildDocument(params: BuildDocumentParams): Document {
         rowsPerPage: grid.rowsPerPage,
         rowGapPt: grid.rowGapPt,
         contentWidthCm: exportContentCm(settings),
-        // 后面紧跟章节扉页时，扉页自己会分页，总览页就别再补一个（否则多一页白纸）
-        endWithBreak: chapterPlan.length === 0,
+        // 0.8.3：总览页一律不在末尾补分页符。
+        // 原来是「没有章节时才补」，结果总览 → 第一张照片时，
+        // 总览尾部的分页符 + 照片页自己的 pageBreakBefore 叠成两次分页，
+        // Word 里就多出一整页白纸（用户反馈的「直接不同一页」，其实中间夹了白页）。
+        endWithBreak: false,
       }),
     );
     hasPreviousContent = true;
@@ -290,10 +295,20 @@ export function buildDocument(params: BuildDocumentParams): Document {
     }
   }
 
+  // 0.8.3：纸面底色在 Word 里也要真的铺上去。
+  // docx 的 `background` 会让整张纸（含页边距）都变成这个颜色，
+  // 米白/浅灰两档都适用；墨黑档不铺 —— Word 里正文仍是深色字，铺黑会印成一片糊。
+  const tint = paperTintOption(settings.paper);
+  const background =
+    settings.paper && settings.paper !== 'white' && settings.paper !== 'night'
+      ? { color: tint.bg.replace('#', '') }
+      : undefined;
+
   return new Document({
     creator: '照片故事',
     title: project.name,
     description: photos.length + ' 张照片的照片故事',
+    ...(background ? { background } : {}),
     styles: {
       default: {
         document: {

@@ -19,6 +19,8 @@ export interface CoverParams {
   contentWidthCm?: number;
   /** 0.5.4：封面已单独成节时传 false —— 节分隔本身就会另起一页 */
   endWithBreak?: boolean;
+  /** 0.8.3：封面上要不要印日期（送人的册子常常不要） */
+  showDate?: boolean;
 }
 
 export function buildCoverSection(params: CoverParams): (Paragraph | Table)[] {
@@ -114,7 +116,8 @@ export function buildCoverSection(params: CoverParams): (Paragraph | Table)[] {
           ...buildRunStyle(WORD_FONTS.coverFooter, {
             color: toDocxColor(WORD_COLORS.lightGray),
           }),
-          text: formatDate(exportDate) + ' · 共 ' + photoCount + ' 张',
+          text:
+            (params.showDate === false ? '' : formatDate(exportDate) + ' · ') + '共 ' + photoCount + ' 张',
         }),
       ],
     }),

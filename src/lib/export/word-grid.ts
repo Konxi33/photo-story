@@ -40,6 +40,7 @@ import { type PhotoBlockId, resolveBlocks } from './blocks';
 import { layoutOrder } from './layout';
 import { buildRunStyle } from './fonts';
 import { renderFlatBlock } from './flat-blocks';
+import { spacerParagraph } from './paragraphs';
 import { bodyFontOption, HEAD_FONT_WORD } from './bookStyle';
 import { figureNumber, pageStyle, tidyReading, type TypeSpec } from './typography';
 
@@ -596,7 +597,7 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
 
   const headingCm =
     params.heading && params.heading.length > 0 ? (params.heading.length === 1 ? 1.9 : 5.0) : 0;
-  const widthCm = Math.min(contentCm, 14.6);
+  const widthCm = contentCm;
 
   // 图能占多高，得先算清文字要占多少 —— 否则一张照片连同文字会溢到第二页，
   // 正是用户说的「图和字分到两页」。这里按字数估行数（中文 1em、西文 0.55em）。
@@ -644,24 +645,43 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
     'score',
   ];
   const MIN_IMAGE = 6.2;
+  const MAX_IMAGE = 15;
   let total = ids.reduce((sum, id) => sum + costOf(id), 0);
-  // 0.6.4：先给照片定目标高度（约 46% 页高），再让文字去挤；文字挤不下才让照片让位。
-  // 之前是「先算文字、剩下多少给照片」，结果文字估得一多，照片就被压成 6cm 的小图。
-  let imageH = Math.min(15, Math.max(MIN_IMAGE, contentHeightCm * 0.6));
+  // 0.8.3：照片高度改成「这一页剩下的高度」，不再是恒定 60% 页高。
+  // 原来固定 15cm（或 60% 页高）时，文字一多，图就被 Word 推到下一页，
+  // 标题和说明留在上一页 —— 用户反馈的「word 导出更乱、直接不同一页」就是这个。
+  // 现在先把文字与标题占的高度扣掉，剩下的全给照片（下限 MIN_IMAGE，上限 MAX_IMAGE），
+  // 再按画幅比收一次：竖图的高其实由纸宽决定，给太高只会被等比缩回去。
+  const aspect = image.width > 0 && image.height > 0 ? image.width / image.height : 0;
+  const fitImageH = (available: number): number => {
+    let next = Math.min(MAX_IMAGE, Math.max(MIN_IMAGE, available));
+    if (aspect > 0) next = Math.min(next, Math.max(MIN_IMAGE, widthCm / aspect));
+    return next;
+  };
+  let imageH = fitImageH(contentHeightCm - total - headingCm - 2.2);
   const budget = (): number => contentHeightCm - total - headingCm - 2.2;
   for (const drop of DROP_ORDER) {
     if (budget() >= imageH) break;
     if (!ids.includes(drop)) continue;
     ids = ids.filter((id) => id !== drop);
     total -= costOf(drop);
+    imageH = fitImageH(budget());
   }
+  // 仍然装不下（文字本身就超过一页）时，照片退到下限，让文字自己翻页，别把图挤走
   while (budget() < imageH && imageH > MIN_IMAGE) {
     imageH = Math.max(MIN_IMAGE, imageH * 0.88);
   }
   const imageFrame = {
     widthCm,
-    heightCm: Math.min(15, imageH),
+    heightCm: imageH,
   };
+
+  // 0.8.3：横构图的照片会被纸宽卡住（高度上不去），一页底部会剩一大块白。
+  // 与其把这块白全堆在页面下方，不如把「标题 + 图 + 说明」当成一整块在版心里居中：
+  // 上方补一半的富余高度（上限 6cm，免得整页只剩一条图在中间）。
+  const slackCm = Math.max(0, budget() - imageH);
+  const topAirCm = Math.min(slackCm / 2, 6);
+  if (topAirCm >= 0.8) out.push(spacerParagraph(topAirCm));
 
   const render = (id: PhotoBlockId) => {
     // 0.6.4：这几个块改用画册口径重写（左对齐、固定行距、无满宽分隔线），
@@ -692,14 +712,11 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
       ];
     }
     if (id === 'index') {
-      return [
-        new Paragraph({
-          alignment: AlignmentType.LEFT,
-          keepNext: true,
-          spacing: { before: 0, after: mmPt(1.5), line: Math.round(style.captionNum.linePt * 20), lineRule: LineRuleType.EXACT },
-          children: [run(style.captionNum, figureNumber(index + 1, style), headFont)],
-        }),
-      ];
+      // 0.8.3：照片页不再印标题旁的那个序号。
+      // 用户的原话是「标题旁边有个小数字这个完全没有必要」，PDF 那边已经去掉；
+      // Word 这边原来是把 02 单独一行印在标题上方，占位又显得像页眉残留。
+      // 序号这件事改由总览页承担（总览的编号仍受「显示序号」开关控制）。
+      return [];
     }
     if (id === 'caption') {
       const title = (analysis.title || photo.fileName || '').trim();
