@@ -69,6 +69,7 @@ import {
   getNarrativeStyle,
   getStoryLength,
   getTitleStyle,
+  styleExamples,
 } from '@/config/styles';
 import { KvRepository } from '@/lib/db';
 import { FRAME_PRESETS } from '@/lib/export/frame';
@@ -630,9 +631,18 @@ export default function SettingsPage() {
       return;
     }
     if (result.info?.hasUpdate) {
-      toast.success('发现新版本 v' + result.info.latest, {
-        description: '可以在这里直接下载并安装',
-      });
+      // 0.8.2：同版本重打的修复包（版本号一样、安装包更新）单独说一句，
+      // 免得用户看到「v0.8.1 → v0.8.1」以为软件坏了
+      toast.success(
+        result.info.repack
+          ? '这一版又出了一次安装包（v' + result.info.latest + '）'
+          : '发现新版本 v' + result.info.latest,
+        {
+          description: result.info.repack
+            ? '版本号没变，但安装包是新的；装上才能拿到这次修好的地方'
+            : '可以在这里直接下载并安装',
+        },
+      );
     } else {
       toast.success('已是最新版本', { description: '当前 v' + (result.info?.current ?? APP_VERSION) });
     }
@@ -875,6 +885,9 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
             <p className="text-[11px] text-ink-faint">{getTitleStyle(titleStyle).hint}</p>
+            <p className="text-[11px] text-ink-faint">
+              例如：{styleExamples(getTitleStyle(titleStyle)).join(' · ')}
+            </p>
           </Field>
 
           <Field label="叙事风格">
@@ -1380,6 +1393,13 @@ export default function SettingsPage() {
                   </span>
                 )}
               </p>
+
+              {pendingInfo.repack && (
+                <p className="text-[11.5px] leading-relaxed text-ink-mid">
+                  版本号还是 v{pendingInfo.latest}，但安装包是重打过的：这次修的是标题写法，
+                  盖上旧的那份就还是老样子。
+                </p>
+              )}
 
               {pendingInfo.assetName && (
                 <p className="text-[11.5px] text-ink-faint">

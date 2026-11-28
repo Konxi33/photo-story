@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/segmented';
-import { NARRATIVE_STYLES, STORY_LENGTHS, TITLE_STYLES } from '@/config/styles';
+import { NARRATIVE_STYLES, STORY_LENGTHS, TITLE_STYLES, styleExamples } from '@/config/styles';
 import { STORAGE_KEY_APP_SETTINGS } from '@/config/app';
 import { KvRepository } from '@/lib/db';
 import { cn } from '@/lib/utils';
@@ -67,7 +67,9 @@ export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSh
     if (open) setDraft(value);
   }, [open, value]);
 
-  const titleHint = TITLE_STYLES.find((s) => s.id === draft.titleStyle)?.hint ?? '';
+  const titleStyleOption = TITLE_STYLES.find((s) => s.id === draft.titleStyle);
+  const titleHint = titleStyleOption?.hint ?? '';
+  const titleExamples = titleStyleOption ? styleExamples(titleStyleOption) : [];
   const storyHint = NARRATIVE_STYLES.find((s) => s.id === draft.narrativeStyle)?.hint ?? '';
 
   const handleSave = async (): Promise<void> => {
@@ -146,6 +148,11 @@ export function GenStyleSheet({ open, onOpenChange, value, onSaved }: GenStyleSh
               options={TITLE_STYLES.map((style) => ({ value: style.id, label: style.label }))}
             />
             <p className="text-[11.5px] leading-relaxed text-ink-faint">{titleHint}</p>
+            {titleExamples.length > 0 && (
+              <p className="text-[11px] leading-relaxed text-ink-faint/80">
+                例如：{titleExamples.join(' · ')}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-2">

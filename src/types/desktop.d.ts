@@ -20,6 +20,10 @@ export interface UpdateCheckResult {
   current?: string;
   latest?: string;
   hasUpdate?: boolean;
+  /** 同版本重打的修复包（版本号一样，云上那个安装包的 build 标记更新） */
+  repack?: boolean;
+  currentBuild?: string | null;
+  latestBuild?: string | null;
   /** GitHub Release 的 body（中文更新日志全文） */
   notes?: string;
   assetUrl?: string | null;

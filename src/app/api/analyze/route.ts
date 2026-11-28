@@ -126,7 +126,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     // 0.8.0：把同批已占用的标题传下去，收尾时才能把「空椅 / 一把空椅」这类近义改写换掉
-    const outcome = parsePhotoAnalysis(result.raw, { usedTitles: req.style?.existingTitles });
+    const outcome = parsePhotoAnalysis(result.raw, {
+    usedTitles: req.style?.existingTitles,
+    titleStyle: req.style?.titleStyle,
+  });
     if (!outcome.ok) {
       return fail(outcome.error.code, outcome.error.message, 422, outcome.error.raw);
     }

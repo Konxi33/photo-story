@@ -4,7 +4,7 @@
 import { z } from 'zod';
 
 import { polishAnalysis } from '@/lib/ai/polish';
-import type { PhotoAnalysis, PhotoScore, ShootingParams, Technique } from '@/types/domain';
+import type { PhotoAnalysis, PhotoScore, ShootingParams, Technique, TitleStyle } from '@/types/domain';
 
 const Text = z.string().trim().catch('');
 
@@ -153,7 +153,7 @@ function normalizeBullets(input: string[] | undefined, warnings: string[], label
 
 export function normalizePhotoAnalysis(
   input: PhotoAnalysis,
-  options: { usedTitles?: string[] } = {},
+  options: { usedTitles?: string[]; titleStyle?: TitleStyle } = {},
 ): {
   data: PhotoAnalysis;
   warnings: string[];
@@ -238,7 +238,12 @@ export function normalizePhotoAnalysis(
   // 0.8.0：把「同批已经用掉的标题」传进收尾流程 —— 0.7.5 就写好了去重逻辑（polish.ts 的
   // isNearDuplicate），但一直没把 usedTitles 传进来，等于空转。批量识别同一批照片时，
   // 模型偶尔会给出「空椅」「一把空椅」这种近义改写，这里才真正换得掉。
-  const polished = polishAnalysis(data, { usedTitles: options.usedTitles });
+  // 0.8.1：把标题命名法也传下去 ——「单词」「无题/编号」这两种要放行只有一个词的标题，
+  // 不然道具标签检查会把「盐」改写成一句描述。
+  const polished = polishAnalysis(data, {
+    usedTitles: options.usedTitles,
+    titleStyle: options.titleStyle,
+  });
   for (const note of polished.notes) {
     warnings.push(`文案收尾：${note.field} 已修正（${note.reason}）`);
   }
@@ -279,7 +284,7 @@ function extractJsonText(raw: string): string | null {
 
 export function parsePhotoAnalysis(
   raw: string,
-  options: { usedTitles?: string[] } = {},
+  options: { usedTitles?: string[]; titleStyle?: TitleStyle } = {},
 ): ParsePhotoAnalysisResult {
   const jsonText = extractJsonText(raw);
   if (!jsonText) {

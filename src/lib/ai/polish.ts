@@ -9,7 +9,7 @@
 // 这一层只做保守修改：删掉、替换、统一标点。不改写内容，不新增信息。
 // 同一批照片的标题去重也在这里（标题撞车是最容易被看出来的破绽）。
 
-import type { PhotoAnalysis } from '@/types/domain';
+import type { PhotoAnalysis, TitleStyle } from '@/types/domain';
 
 /** 单个分析结果的收尾报告，方便开发时看「到底改了什么」 */
 export interface PolishNote {
@@ -43,6 +43,19 @@ const TITLE_POISON = [
   '之间',
   '远方',
   '答案',
+  // 0.8.1：赛事图注里几乎不出现的「摄影腔」形容词，正是「像 AI 写的」的第一信号
+  '氛围感',
+  '氛围',
+  '高级感',
+  '电影感',
+  '静谧',
+  '治愈系',
+  '喧嚣',
+  '斑驳',
+  '斑斓',
+  '缱绻',
+  '呢喃',
+  '浅吟',
 ];
 
 /** 软词替换：这些词一出现，句子立刻变「文案」。能做等义替换的就替换。 */
@@ -124,9 +137,18 @@ function unifyPunctuation(text: string): string {
  * 毒词剔完必须校验结果是否还像标题，太短就从正文里捞一个具体物名兜底，
  * 绝不能把「里」「的」这种残渣当标题交出去。
  */
+/**
+ * 0.8.1：有些命名法本来就要「只有一个词」——「单词」交的是「盐」「守夜人」，
+ * 「无题/编号」交的是「无题 No.04」。这时不能再跑到具标签检查里去把它们换成一句描述，
+ * 否则刚拿到的单词标题会被改回「刚拧干的抹布」那种散文句。
+ */
+function allowsBareNoun(style?: TitleStyle): boolean {
+  return style === 'concise' || style === 'symbol';
+}
+
 export function polishTitle(
   raw: string,
-  hints: { story?: string } = {},
+  hints: { story?: string; titleStyle?: TitleStyle } = {},
 ): { title: string; notes: PolishNote[] } {
   const notes: PolishNote[] = [];
   const original = collapse(raw);
@@ -134,10 +156,13 @@ export function polishTitle(
   let title = original
     .replace(/^[《〈「『"“'']+/, '')
     .replace(/[》〉」』"”'']+$/, '')
-    // 逗号保留：中文标题里「亮着的店，关着的门」这种并列是靠逗号立住的
-    .replace(/[。、；：！？…—·]+/g, '')
+    // 0.8.1：标题允许「·」「—」「：」与空格（「香豌豆—友谊」「无题 No.04」），
+    // 这些是赛事命名法的一部分，不能当句读删掉；只清句子级的标点。
+    .replace(/[。；！？…]+/g, '')
+    .replace(/、+/g, ' ')
     .replace(/，{2,}/g, '，')
-    .replace(/^，|，$/g, '')
+    .replace(/^[，\s]+|[，\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
     .trim();
 
   if (title !== original) {
@@ -160,10 +185,19 @@ export function polishTitle(
     title = title.replace(/^[的之里中在与和]+|[的之里中在与和]+$/g, '').trim();
   }
 
-  if (title.length > 10) {
-    const cut = Math.max(title.lastIndexOf('，'), title.lastIndexOf('的'), title.lastIndexOf('与'));
-    const next = cut >= 4 ? title.slice(0, cut) : title.slice(0, 10);
-    notes.push({ field: 'title', from: title, to: next, reason: '超过 10 字' });
+  // 0.8.1：上限从 10 放宽到 14 —— 「道路中隐藏的秘密」这种获奖名录里的标题就有 9–12 字，
+  // 一刀切到 10 会把标题截成半句。断点优先破折号与逗号（那是命名法里的分隔），其次空格与「的」；
+  // 断点切完仍超长（断点太靠后）就硬截到 14，保证「压到 14 字」是硬承诺。
+  if (title.length > 14) {
+    const cut = Math.max(
+      title.lastIndexOf('，'),
+      title.lastIndexOf('—'),
+      title.lastIndexOf(' '),
+      title.lastIndexOf('的'),
+    );
+    const candidate = cut >= 2 ? title.slice(0, cut).trim() : title;
+    const next = candidate.length > 14 ? title.slice(0, 14).trim() : candidate;
+    notes.push({ field: 'title', from: title, to: next, reason: '超过 14 字' });
     title = next;
   }
 
@@ -180,7 +214,9 @@ export function polishTitle(
 
   // 0.7.6：道具标签式标题（「蓝牌的车」「副驾驶的玩偶」）就地换掉 ——
   // 这类标题只把画面里一件东西念了名字，既没时辰也没动作，换到任何照片上都成立。
-  if (isPropLabelTitle(title)) {
+  // 0.8.1：「单词」「无题/编号」这两种命名法本来就要一个词（「盐」「守夜人」），
+  // 不能再按道具标签去改，否则刚做出来的单词标题会被换成一句描述。
+  if (!allowsBareNoun(hints.titleStyle) && isPropLabelTitle(title)) {
     const derived = hints.story ? deriveSceneTitle(hints.story) : null;
     if (derived && derived !== title) {
       notes.push({ field: 'title', from: title, to: derived, reason: '道具标签式标题，改从正文取局面' });
@@ -461,6 +497,8 @@ export function polishBullets(items: string[] | undefined, limit: number): strin
 export interface PolishOptions {
   /** 同批已用过的标题，用来避免重名与近义改写 */
   usedTitles?: string[];
+  /** 本次的标题命名法：单词 / 无题编号 这两种要放行「只有一个词」 */
+  titleStyle?: TitleStyle;
 }
 
 /**
@@ -496,7 +534,10 @@ export function polishAnalysis(analysis: PhotoAnalysis, options: PolishOptions =
   const storyResult = polishStory(analysis.story);
   notes.push(...storyResult.notes);
 
-  const titleResult = polishTitle(analysis.title, { story: storyResult.story });
+  const titleResult = polishTitle(analysis.title, {
+    story: storyResult.story,
+    titleStyle: options.titleStyle,
+  });
   notes.push(...titleResult.notes);
   let title = titleResult.title;
 

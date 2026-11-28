@@ -12,14 +12,14 @@ export type ImageQuality = 'standard' | 'high' | 'ultra';
 export type LayoutMode = 'compact' | 'loose';
 export type AssetVariant = 'original' | 'preview' | 'ai' | 'doc';
 
-/** 标题风格 */
+/** 标题命名法（0.8.1 换成国际摄影赛事与画册里真实存在的六种命名法） */
 export type TitleStyle =
-  | 'literary' // 文学意象
-  | 'concise' // 四字凝练
-  | 'poetic' // 诗性对仗
-  | 'cinematic' // 电影片名
-  | 'plain' // 朴素纪实
-  | 'symbol'; // 隐喻象征
+  | 'literary' // 引语（借半句诗、谚语、招牌字、外语短语）
+  | 'concise' // 单词（一个实体或身份，像画册目录）
+  | 'poetic' // 并置（两样东西并排，关系不点破）
+  | 'cinematic' // 专名（人名/地名/方言词，或「系列—副题」）
+  | 'plain' // 地名与时刻（地点 + 时间刻度，像档案记录）
+  | 'symbol'; // 无题 / 编号（无题 No.07、习作 12）
 
 /** 叙事风格 */
 export type NarrativeStyle =

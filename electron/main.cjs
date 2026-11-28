@@ -403,6 +403,20 @@ const UPDATE_RELEASES_API = 'https://api.github.com/repos/Konxi33/photo-story/re
 const UPDATE_CHECK_TTL_MS = 60 * 60 * 1000;
 let updateCheckCache = null; // { at: number, payload: object }
 
+/*
+ * 本安装包的构建标记（0.8.2）。
+ * 版本号相同、只是重打了安装包时，靠它来判断「云上那个包比本机新」——
+ * 否则已经装了同版本旧包的人永远得到「已是最新」。
+ * 每次重新打包都要改这里，并且 Release 正文里写同值的 <!-- build:20261128a -->。
+ */
+const BUILD_STAMP = '20261128a';
+
+const {
+  parseVersionParts,
+  compareVersion,
+  decideUpdate,
+} = require('./update-core.cjs');
+
 /** 只允许从官方 Release 下载，防止渲染进程被注入任意 URL 后被当成下载器 */
 const UPDATE_DOWNLOAD_ALLOWLIST = [
   'https://github.com/Konxi33/photo-story/releases/download/',
@@ -419,41 +433,6 @@ function sanitizeDownloadName(rawName) {
   const safe = String(rawName || '').replace(/[^A-Za-z0-9._-]/g, '');
   if (!safe || safe === '.' || safe === '..') return 'photo-story-setup.exe';
   return safe;
-}
-
-/** 解析成 [major, minor, patch]，允许 “v0.5.7” 或 “0.5.7-beta.1” */
-function parseVersionParts(input) {
-  const matched = String(input || '')
-    .trim()
-    .replace(/^v/i, '')
-    .match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (!matched) return null;
-  return [Number(matched[1]), Number(matched[2]), Number(matched[3])];
-}
-
-/** a > b 返回 1，相等 0，小于 -1；解析失败按 0 处理（不会误报有新版） */
-function compareVersion(a, b) {
-  const left = parseVersionParts(a);
-  const right = parseVersionParts(b);
-  if (!left || !right) return 0;
-  for (let i = 0; i < 3; i += 1) {
-    if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
-  }
-  return 0;
-}
-
-/** 在 assets 里找安装包：附件名以 -setup.exe 结尾 */
-function pickSetupAsset(assets) {
-  if (!Array.isArray(assets)) return null;
-  const hit = assets.find(
-    (asset) => asset && typeof asset.name === 'string' && /-setup\.exe$/i.test(asset.name),
-  );
-  if (!hit) return null;
-  return {
-    url: typeof hit.browser_download_url === 'string' ? hit.browser_download_url : null,
-    name: hit.name,
-    size: typeof hit.size === 'number' ? hit.size : null,
-  };
 }
 
 /** 渲染进程的窗口可能已经销毁，webContents 也可能为 null */
@@ -722,25 +701,14 @@ function registerIpc() {
         compareVersion(item.tag_name, best.tag_name) > 0 ? item : best,
       );
 
-      const current = app.getVersion();
-      const latest = String((release && release.tag_name) || '')
-        .replace(/^v/i, '')
-        .trim();
-      if (!latest) return { ok: false, error: 'Release 里没有读到版本号（tag_name 为空）' };
-
-      const asset = pickSetupAsset(release && release.assets);
-      const payload = {
-        ok: true,
-        current,
-        latest,
-        hasUpdate: compareVersion(latest, current) > 0,
-        notes: typeof release.body === 'string' ? release.body : '',
-        assetUrl: asset ? asset.url : null,
-        assetName: asset ? asset.name : null,
-        assetSize: asset ? asset.size : null,
-        publishedAt:
-          release && typeof release.published_at === 'string' ? release.published_at : null,
-      };
+      // 0.8.2：判定交给 update-core（版本号优先；同版本但 Release 正文里的
+      // <!-- build:… --> 比本机新，也提示更新，用来发同版本修复包）
+      const payload = decideUpdate({
+        current: app.getVersion(),
+        currentBuild: BUILD_STAMP,
+        release,
+      });
+      if (!payload.ok) return payload;
 
       updateCheckCache = { at: now, payload };
       return payload;

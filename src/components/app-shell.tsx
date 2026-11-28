@@ -401,8 +401,10 @@ export function AppShell({ children, actions, showTopBar = true }: AppShellProps
           const pending = readPendingUpdate();
           if (!pending) return;
 
-          toast('发现新版本 v' + pending.latest, {
-            description: '点这里去更新',
+          toast(pending.repack ? '这一版又出了一次安装包' : '发现新版本 v' + pending.latest, {
+            description: pending.repack
+              ? '版本号没变（v' + pending.latest + '），装上才拿到修好的地方'
+              : '点这里去更新',
             duration: 8000,
             action: {
               label: '去更新',

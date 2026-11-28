@@ -12,6 +12,16 @@ export interface UpdateInfo {
   current: string;
   latest: string;
   hasUpdate: boolean;
+  /**
+   * 0.8.2：同版本重打的修复包。
+   * 版本号一样，但云上那个安装包的 build 标记比本机新 —— 已经装了同版本旧包的人
+   * 也能收到提示，不再永远显示「已是最新」。
+   */
+  repack?: boolean;
+  /** 本机安装包的构建标记，如 20261128a */
+  currentBuild?: string | null;
+  /** 云上安装包的构建标记 */
+  latestBuild?: string | null;
   /** Release body，中文更新日志全文 */
   notes: string;
   assetUrl: string | null;
@@ -83,6 +93,9 @@ function normalizeInfo(raw: {
   current?: string;
   latest?: string;
   hasUpdate?: boolean;
+  repack?: boolean;
+  currentBuild?: string | null;
+  latestBuild?: string | null;
   notes?: string;
   assetUrl?: string | null;
   assetName?: string | null;
@@ -93,6 +106,9 @@ function normalizeInfo(raw: {
     current: typeof raw.current === 'string' && raw.current ? raw.current : APP_VERSION,
     latest: typeof raw.latest === 'string' ? raw.latest : APP_VERSION,
     hasUpdate: raw.hasUpdate === true,
+    repack: raw.repack === true,
+    currentBuild: typeof raw.currentBuild === 'string' ? raw.currentBuild : null,
+    latestBuild: typeof raw.latestBuild === 'string' ? raw.latestBuild : null,
     notes: typeof raw.notes === 'string' ? raw.notes : '',
     assetUrl: typeof raw.assetUrl === 'string' && raw.assetUrl ? raw.assetUrl : null,
     assetName: typeof raw.assetName === 'string' && raw.assetName ? raw.assetName : null,
