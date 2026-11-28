@@ -153,7 +153,13 @@ export function buildDocument(params: BuildDocumentParams): Document {
   // 「左 8 / 右 4」两栏：块全都落在左半或右半，没有跨栏的复杂摆位
   // 0.6.6：用户在排版台上挪过位置时走「画布流式」（把格子位置印出来，但不裁字）；
   // 没挪过（默认预设 / useGrid=false）仍走单栏流式，保证默认流程零回归。
-  const canvasFlow = hasCustomPlacement(settings);
+  // 0.8.5：Word **不再**照抄排版台的 12×24 画布。
+  // docx 的表格不支持「跨行跨列 + 精确行高」这套自由网格：同一张表里既有一整行的
+  // 标题格、又有跨 10 行的图片格，Word 会把列宽重新分配（正文被挤成一条窄栏），
+  // 或者干脆把图片格压没。试过 columnSpan/rowSpan + tblGrid + vMerge 各种组合都不稳。
+  // 所以 Word 走单栏流式：一张照片一页，标题 → 图 → 图注 → 正文，绝不裁字、绝不分页错乱；
+  // 真正要「跟排版台一样」的印刷稿用 PDF（那条链路是 HTML + 绝对定位，能 1:1 还原）。
+  const canvasFlow = false && hasCustomPlacement(settings);
   const photoPage = (
     photo: Photo,
     index: number,
@@ -184,7 +190,13 @@ export function buildDocument(params: BuildDocumentParams): Document {
       photo,
       index,
       image,
-      settings,
+      // 0.8.5：Word 走单栏流式，但**板块集合要跟排版台的画布一致**。
+      // 之前用的是 settings.blocks（一份可能过期的顺序表），而画布上的 items 才是
+      // 用户真正摆的东西 —— 两边不一致时，PDF 有正文而 Word 没有（用户：「根本不是一个样子」）。
+      settings:
+        settings.useCanvas && settings.grid?.items?.length
+          ? { ...settings, blocks: settings.grid.items.map((item) => item.id) }
+          : settings,
       contentCm,
       contentHeightCm: fullHeightCm,
       heading: opts.heading,
@@ -196,19 +208,25 @@ export function buildDocument(params: BuildDocumentParams): Document {
     // 章扉要占一整页，只留给「照片够多、值得单独开一个单元」的章节（≥4 张）。
     // 一张或两三张的小章节用紧凑章头压在同一页顶端，否则一本 20 张的书会被扉页切成碎片
     // —— 摄影书里这也是常见做法：小章做「节」，大章才做「章」。
-    const compact = entry.photos.length <= 3;
+    // 0.8.5：章节标题就是日期时（用户常按拍摄日给章节命名，如「7月15日」），
+    // 一页顶上一行「第 01 章 7月15日」在整本书里重复十几次，读起来就是一道
+    // 日期分割线；扉页更糟 —— 整页只有一个日期。这类章节一律不印章头。
+    const dateTitle = /^\d{1,2}\s*月\s*\d{1,2}\s*日$/.test((entry.chapter.title ?? '').trim());
+    const compact = entry.photos.length <= 3 || dateTitle;
 
     if (compact) {
       // 0.6.1：章头不再单独 push 进 children，而是随第一张照片一起交给
       // word-grid —— 只有它知道这页顶上占了多少高度，才能把 12×24 表格
       // 压到「章头 + 照片页 ≤ 一页」以内。否则每章都会多出一张白页。
-      const heading = buildChapterHeading({
-        index: chapterIdx + 1,
-        title: entry.chapter.title,
-        note: entry.chapter.note,
-        contentWidthCm: exportContentCm(settings),
-        compact: true,
-      });
+      const heading = dateTitle
+        ? []
+        : buildChapterHeading({
+            index: chapterIdx + 1,
+            title: entry.chapter.title,
+            note: entry.chapter.note,
+            contentWidthCm: exportContentCm(settings),
+            compact: true,
+          });
       hasPreviousContent = true;
 
       entry.photos.forEach((photo, i) => {
@@ -218,8 +236,8 @@ export function buildDocument(params: BuildDocumentParams): Document {
           ...photoPage(photo, photoIndex, {
             // 章头已经把这页开好了，第一张照片别再分一次页
             isFirst: i === 0,
-            hasChapterHeading: i === 0,
-            heading: i === 0 ? heading : undefined,
+            hasChapterHeading: i === 0 && heading.length > 0,
+            heading: i === 0 && heading.length > 0 ? heading : undefined,
           }),
         );
       });

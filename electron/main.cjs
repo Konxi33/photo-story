@@ -597,19 +597,11 @@ function registerIpc() {
         landscape: Boolean(payload && payload.landscape),
         printBackground: true,
       };
-      if (hasMargins) {
-        const m = mmToInch(payload.marginMm);
-        printOptions.margins = {
-          marginType: 'custom',
-          top: m,
-          bottom: m,
-          // 装订线加在左边，装订后正文不被吃掉
-          left: mmToInch(Number(payload.marginMm) + (Number(payload.gutterMm) || 0)),
-          right: m,
-        };
-      } else {
-        printOptions.margins = { marginType: 'default' };
-      }
+      // 0.8.5：**一律不要 printToPDF 的页边距**。
+      // 版心留白现在由 HTML 自己算（每页 .page 用 padding 让出页边距、背景铺满整张纸），
+      // printToPDF 再套一层 margin，纸色就只铺在内容区、四周留下一圈白边 ——
+      // 用户选「米白纸」却看到白底，就是这个原因。
+      printOptions.margins = { marginType: 'none' };
 
       const data = await win.webContents.printToPDF(printOptions);
 

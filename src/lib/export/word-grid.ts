@@ -26,6 +26,7 @@ import {
   HeightRule,
   TableLayoutType,
   VerticalAlign,
+  VerticalMergeType,
   WidthType,
   type ITableCellOptions,
   LineRuleType,
@@ -36,7 +37,7 @@ import { WORD_COLORS, WORD_FONTS, toDocxColor } from '@/config/wordLayout';
 import type { ExportSettings, Photo, PhotoAnalysis, Technique } from '@/types/domain';
 
 import { type BlockContext, buildPhotoSection, renderBlock } from './body';
-import { type BandItemPlan, planPageBands } from './bands';
+import { type CanvasCell, planCanvasPage } from './canvas';
 import { type PhotoBlockId, resolveBlocks } from './blocks';
 import { layoutOrder } from './layout';
 import { buildRunStyle } from './fonts';
@@ -244,7 +245,10 @@ function cellContent(plan: ItemPlan, params: GridSectionParams): (Paragraph | Ta
   const { photo, image, settings } = params;
   const id = plan.item.id;
   const analysis = photo.status === 'success' ? photo.analysis : undefined;
-  const trimmed = trimAnalysis(analysis, id, plan.widthCm, plan.heightCm);
+  // 收字时只给格子的 90% 高度：Word 的行距（1.2×）和段前后距会把实际占高撑大，
+  // 按满格量出来的段落落进格子时，最后一行常被行高裁掉半个字（用户：「裁掉的被裁掉了」）。
+  // 留一成余量，宁可早一句收住，也不让字被切在格子里。
+  const trimmed = trimAnalysis(analysis, id, plan.widthCm, plan.heightCm * 0.9);
 
   // 窄格子里的评分卡改用紧凑写法（表格版会把「82.4」拆成竖排）
   if (id === 'score' && plan.widthCm < 9 && analysis?.score) {
@@ -645,21 +649,25 @@ export function buildSingleFlowSection(params: SingleFlowParams): (Paragraph | T
     'score',
   ];
   const MIN_IMAGE = 6.2;
-  const MAX_IMAGE = 15;
+  const MAX_IMAGE = 17;
   let total = ids.reduce((sum, id) => sum + costOf(id), 0);
   // 0.8.3：照片高度改成「这一页剩下的高度」，不再是恒定 60% 页高。
   // 原来固定 15cm（或 60% 页高）时，文字一多，图就被 Word 推到下一页，
   // 标题和说明留在上一页 —— 用户反馈的「word 导出更乱、直接不同一页」就是这个。
   // 现在先把文字与标题占的高度扣掉，剩下的全给照片（下限 MIN_IMAGE，上限 MAX_IMAGE），
   // 再按画幅比收一次：竖图的高其实由纸宽决定，给太高只会被等比缩回去。
+  // 0.8.5：`costOf` 是保守估计（每个块都带了一段 padding），实测排出来比估算矮不少，
+  // 结果照片只有 7cm 高、页底空掉一大块（用户：「拍出来一半是白纸」）。
+  // 这里按 0.85 折算估高，让照片尽量吃满「纸宽决定的高度」。
+  const TEXT_ESTIMATE_SLACK = 0.85;
   const aspect = image.width > 0 && image.height > 0 ? image.width / image.height : 0;
   const fitImageH = (available: number): number => {
     let next = Math.min(MAX_IMAGE, Math.max(MIN_IMAGE, available));
     if (aspect > 0) next = Math.min(next, Math.max(MIN_IMAGE, widthCm / aspect));
     return next;
   };
-  let imageH = fitImageH(contentHeightCm - total - headingCm - 2.2);
-  const budget = (): number => contentHeightCm - total - headingCm - 2.2;
+  const budget = (): number => contentHeightCm - total * TEXT_ESTIMATE_SLACK - headingCm - 2.2;
+  let imageH = fitImageH(budget());
   for (const drop of DROP_ORDER) {
     if (budget() >= imageH) break;
     if (!ids.includes(drop)) continue;
@@ -861,19 +869,15 @@ export interface CanvasFlowParams {
 /** 紧凑章头压在同一页顶端时占掉的高度（cm），约等于「图注 + 章名 + 分隔线」 */
 const CANVAS_HEADING_CM = 3.6;
 
-/** 画布流式不按格子高度裁字：给一个「无限高」，fitText/fitTechnique/fitGroup 就原样返回 */
-const NO_CLIP_CM = 999;
 
-/** 文字格的内边距（twips，108 ≈ 1.9mm）：让正文不贴着图片/表线 */
-const CANVAS_GUTTER_TWIPS = 108;
 
-/** 画布里的一个块：高度给「无限大」，于是 cellContent 只按宽度排版、不裁字 */
-function canvasPlan(id: PhotoBlockId, widthCm: number): ItemPlan {
+/** 画布里的一个块：高度用规划值（不是无限大），cellContent 才会按格子收字、按格子选字号 */
+function canvasPlan(id: PhotoBlockId, widthCm: number, heightCm: number, fontPt: number): ItemPlan {
   return {
     item: { id, col: 0, row: 0, colSpan: 1, rowSpan: 1 },
     widthCm,
-    heightCm: NO_CLIP_CM,
-    fontPt: 10.5,
+    heightCm: Math.max(0.8, heightCm),
+    fontPt,
     needCm: 0,
     fits: true,
     truncated: false,
@@ -916,49 +920,35 @@ function canvasBreak(): Paragraph {
 }
 
 /**
- * 一页照片（画布流式）。document.ts 只在「用户在排版台改过位置」时走这里，
- * 默认预设仍然走 buildSingleFlowSection，保证默认流程零回归。
+ * 一页照片（画布版，0.8.5 重写）。
  *
- * 0.8.4：**整页一张表**，一条行带一行、行内 `cantSplit`。
- * 以前是「一条行带一张表」，表与表之间夹一个空段落，Word 完全可以在那儿分页 ——
- * 于是照片在这一页、它的正文和图注翻到下一页（用户原话「每一张图片和配的文字都不在
- * 同一页」）。改成一张表之后，行内不可分页，照片和它的配文结构上就不可能被拆开；
- * 行高也按 bands.ts 的真实测量给，装不下时先缩图再降字号再让块，不会撑破一页。
+ * ★ 这一版的唯一目标：**导出的页面 = 排版台里摆的那张画布**。
+ *   geometry 全部由 planCanvasPage 直接算（col/row × colSpan/rowSpan），
+ *   这里只负责把它翻译成一张 12 列 × 24 行的固定表格：
+ *     - 行高 EXACT（= 版心高 / 行数），所以整张表的高**必然**等于版心高，
+ *       不会因为「内容多一点点」被推到下一页（0.8.4 那一版行高 ATLEAST，
+ *       每张照片页都溢出一张只印着「拍摄手法」的白纸，20 张照片导出成 40 页）；
+ *     - cantSplit：一行不许拆到两页；
+ *     - 跨行跨列的格子只在起始行给 TableCell，被上面跨下来的位置不传，
+ *       docx 会按列位置自动补 vMerge 续接格；
+ *     - 单元格边距：图片格 0，文字格左右各 72twips（≈1.3mm），免得正文
+ *       紧贴照片边缘；上下 0，位置才跟画布对得上。
  */
 export function buildCanvasFlowSection(params: CanvasFlowParams): (Paragraph | Table)[] {
   const { photo, index, image, settings, contentCm, heading, pageBreakBefore } = params;
-  const layout = resolveLayout(settings);
-  const analysis = photo.analysis;
-
-  // 标题已经印在图上时，图注再印一遍同样的字就是重复（跟 buildSingleFlowSection 同一口径）
-  const hasTitle =
-    Boolean(analysis?.title?.trim()) && layout.items.some((item) => item.id === 'title');
-  const pageLayout: PageLayout = hasTitle
-    ? { ...layout, items: layout.items.filter((item) => item.id !== 'caption') }
-    : layout;
-  if (pageLayout.items.length === 0) return [];
-
-  const openSettings: ExportSettings = { ...settings, includeScoreDetail: true };
-  const gridParams: GridSectionParams = {
-    photo,
-    index,
-    image,
-    settings: openSettings,
-    contentCm,
-    contentHeightCm: NO_CLIP_CM,
-  };
-
   const out: (Paragraph | Table)[] = [];
   const head = heading ?? [];
+  // 分页一定要挂在这一页最前面。0.8.5 之前写成「有章头就不加分页」，结果
+  // 带紧凑章头的照片页全都不分页，两张照片被塞进同一页（用户原话「乱的被分成了两页」）。
+  if (pageBreakBefore) out.push(canvasBreak());
   if (head.length > 0) out.push(...head);
-  if (pageBreakBefore && head.length === 0) out.push(canvasBreak());
 
-  const cols = Math.max(1, layout.cols);
-  const totalTwips = Math.round(contentCm * 567);
-
-  // 可用高度 = 版心高 − 页头（紧凑章头压在同一页顶端时）
+  // 紧凑章头压在同一页顶端，它占掉的高度必须从版心高里扣掉；
+  // 不扣的话整张表会比页面高，Word 就把最后一行（往往正是正文或拍摄手法）推到下一页。
   const headingCm = head.length > 0 ? CANVAS_HEADING_CM : 0;
-  const availableCm = Math.max(6, (params.contentHeightCm ?? 24.7) - headingCm);
+  // 再留 0.6cm 安全余量：Word 的行高按 1/20pt 取整，24 行累计的误差足够把最后一行
+  // （往往正是末尾的类别/正文）挤到下一页 —— 那正是「每页后面多一张白纸」的成因。
+  const pageHeightCm = Math.max(6, (params.contentHeightCm ?? 24.7) - headingCm - 0.6);
 
   const aspect =
     image && image.width > 0 && image.height > 0
@@ -967,66 +957,128 @@ export function buildCanvasFlowSection(params: CanvasFlowParams): (Paragraph | T
         ? photo.width / photo.height
         : 3 / 2;
 
-  const plan = planPageBands({
+  const plan = planCanvasPage({
+    photo,
+    settings,
+    contentCm,
+    contentHeightCm: pageHeightCm,
+    aspect,
+    index,
+  });
+  if (plan.cells.length === 0) return out;
+
+  const gridParams: GridSectionParams = {
     photo,
     index,
-    settings: openSettings,
-    layout: pageLayout,
+    image,
+    settings: { ...settings, includeScoreDetail: true },
     contentCm,
-    contentHeightCm: availableCm,
-    aspect,
-  });
-  if (plan.bands.length === 0) return out;
+    contentHeightCm: pageHeightCm,
+  };
 
-  const rows = plan.bands.map((band) => {
-    // 同一格（同列区间、同跨度）里的块竖着叠
-    const grouped = new Map<string, BandItemPlan[]>();
-    for (const item of band.items) {
-      const key = `${item.col}:${item.span}`;
-      const list = grouped.get(key);
-      if (list) list.push(item);
-      else grouped.set(key, [item]);
+  const totalTwips = Math.round(contentCm * 567);
+  const colTwips = totalTwips / plan.cols;
+  const rowTwips = Math.max(80, Math.round((pageHeightCm * 567) / plan.rows));
+
+  // 只在「从这里开始」的行给单元格；跨行格从上方跨下来的位置留空，交给 docx 续接
+  const byRow = new Map<number, CanvasCell[]>();
+  for (const cell of plan.cells) {
+    const row = Math.round(cell.topCm / plan.rowCm);
+    const list = byRow.get(row);
+    if (list) list.push(cell);
+    else byRow.set(row, [cell]);
+  }
+
+  const rows: TableRow[] = [];
+  // 0.8.5：每一行都必须把自己该占的 12 列**全列出来**。
+  // 之前只在「跨行格起始的那一行」放单元格，下面的行留空交给 rowSpan 续接，
+  // Word 就会把这些行重新分配列宽 —— 照片被压成半页宽、正文挤在一条窄栏里
+  // （用户看到的「雷霆错位」）。现在给被跨行格盖住的列补 verticalMerge: continue 的空格。
+  const cover: (CanvasCell | null)[] = new Array<CanvasCell | null>(plan.cols).fill(null);
+  const spanOf = (cm: number, unit: number): number => Math.max(1, Math.round(cm / unit));
+
+  const makeCell = (cell: CanvasCell): TableCell => {
+    const isImage = cell.id === 'image';
+    const colSpan = spanOf(cell.widthCm, plan.colCm);
+    const rowSpan = spanOf(cell.heightCm, plan.rowCm);
+    const inner = isImage
+      ? imagePlan(cell.widthCm, cell.heightCm)
+      : canvasPlan(cell.id, cell.widthCm, cell.heightCm, cell.fontPt);
+    const children = cellContent(inner, gridParams);
+    return new TableCell({
+      width: { size: Math.round(colSpan * colTwips), type: WidthType.DXA },
+      columnSpan: colSpan > 1 ? colSpan : undefined,
+      rowSpan: rowSpan > 1 ? rowSpan : undefined,
+      verticalAlign: isImage ? VerticalAlign.CENTER : VerticalAlign.TOP,
+      margins: isImage
+        ? { top: 0, bottom: 0, left: 0, right: 0 }
+        : { top: 0, bottom: 0, left: 72, right: 72 },
+      children: children.length > 0 ? children : [canvasSpacer()],
+    });
+  };
+
+  for (let row = 0; row < plan.rows; row += 1) {
+    const started = (byRow.get(row) ?? []).sort((a, b) => a.leftCm - b.leftCm);
+    const startAt = new Map<number, CanvasCell>();
+    for (const cell of started) startAt.set(spanOf(cell.leftCm, plan.colCm), cell);
+
+    const cells: TableCell[] = [];
+    let col = 0;
+    while (col < plan.cols) {
+      const start = startAt.get(col);
+      if (start) {
+        const colSpan = spanOf(start.widthCm, plan.colCm);
+        const rowSpan = spanOf(start.heightCm, plan.rowCm);
+        cells.push(makeCell(start));
+        for (let i = 0; i < colSpan && col + i < plan.cols; i += 1) {
+          cover[col + i] = rowSpan > 1 ? start : null;
+        }
+        col += colSpan;
+        continue;
+      }
+      const above = cover[col];
+      if (above) {
+        const colSpan = spanOf(above.widthCm, plan.colCm);
+        // 竖向合并的延续格：宽度必须和起始格一致，否则这一行又会被重排
+        cells.push(
+          new TableCell({
+            width: { size: Math.round(colSpan * colTwips), type: WidthType.DXA },
+            columnSpan: colSpan > 1 ? colSpan : undefined,
+            verticalMerge: VerticalMergeType.CONTINUE,
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+            children: [canvasSpacer()],
+          }),
+        );
+        col += colSpan;
+        continue;
+      }
+      // 空白列：给一个占位格，保证这一行仍然覆盖满 12 列
+      cells.push(
+        new TableCell({
+          width: { size: Math.round(colTwips), type: WidthType.DXA },
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          children: [canvasSpacer()],
+        }),
+      );
+      col += 1;
     }
 
-    const cells = [...grouped.values()].map((list) => {
-      const span = list[0].span;
-      const imageOnly = list.length === 1 && list[0].id === 'image';
-      // 文字格留一点左右余白，免得正文紧贴图片边缘
-      const gutterCm = imageOnly ? 0 : (CANVAS_GUTTER_TWIPS * 2) / 567;
-      const widthCm = Math.max(1, list[0].widthCm - gutterCm);
-      const children = list.flatMap((item) =>
-        cellContent(
-          item.id === 'image'
-            ? imagePlan(widthCm, item.imageHeightCm)
-            : canvasPlan(item.id, widthCm),
-          gridParams,
-        ),
-      );
-      return new TableCell({
-        width: { size: Math.round((span / cols) * totalTwips), type: WidthType.DXA },
-        columnSpan: span > 1 ? span : undefined,
-        // 单独一张图上下居中（像装裱）；图下面还叠着文字时按顶对齐
-        verticalAlign: imageOnly ? VerticalAlign.CENTER : VerticalAlign.TOP,
-        margins: imageOnly
-          ? CELL_MARGINS
-          : { top: 0, bottom: 0, left: CANVAS_GUTTER_TWIPS, right: CANVAS_GUTTER_TWIPS },
-        children: children.length > 0 ? children : [canvasSpacer()],
-      });
-    });
-
-    // 行高 = 内容高 + 这一带下面的间距（不是 EXACT：测量略微偏小也不会裁字）
-    const rowCm = Math.max(0.4, band.heightCm + band.gapAfterCm);
-    return new TableRow({
-      cantSplit: true,
-      height: { value: Math.round(rowCm * 567), rule: HeightRule.ATLEAST },
-      children: cells,
-    });
-  });
+    rows.push(
+      new TableRow({
+        cantSplit: true,
+        height: { value: rowTwips, rule: HeightRule.EXACT },
+        children: cells,
+      }),
+    );
+  }
 
   out.push(
     new Table({
       layout: TableLayoutType.FIXED,
       width: { size: totalTwips, type: WidthType.DXA },
+      // 0.8.5：必须显式给出 12 条的 tblGrid。不写的话 Word 拿第一行（整行合并的标题格）
+      // 推网格，整张表被当成 1 列，下面的正文/参数全被挤成一条窄栏 —— 「雷霆错位」的真因。
+      columnWidths: Array.from({ length: plan.cols }, () => Math.max(1, Math.round(colTwips))),
       borders: NO_BORDERS,
       rows,
     }),

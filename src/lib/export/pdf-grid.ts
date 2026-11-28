@@ -24,9 +24,9 @@
 import { formatCamera, formatExifLine } from '@/lib/image/exif';
 import type { ExportSettings, Photo, PhotoAnalysis, Technique } from '@/types/domain';
 
-import { type BandItemPlan, planPageBands } from './bands';
+import { planCanvasPage } from './canvas';
 import { HEAD_FONT_CSS, bodyFontOption } from './bookStyle';
-import { type ItemPlan, resolveLayout } from './layout';
+import { type ItemPlan } from './layout';
 import { tidyParam } from './params';
 import {
   PT_TO_MM,
@@ -54,8 +54,24 @@ const PAGE_SAFE_CM = 0.02;
  */
 export const GRID_HEADING_RESERVE_CM = 3.6;
 
-/** `.gitem-text` 的内边距（mm）：0.4mm 上下 + 0.6mm 左右，写死在这里与 pdf.ts 的 CSS 对齐 */
-const BOX_PAD_X_MM = 1.2;
+/**
+ * 0.8.5：画布上每个文字块左上角的小标签。
+ * 一整页如果只有灰字，读者分不清哪一段是正文、哪一段是评分（用户原话
+ * 「看不懂哪一块是哪一块」）。标题、照片、图注不加标签 —— 它们自己看得懂。
+ */
+const MODULE_LABEL: Partial<Record<string, string>> = {
+  story: '正文',
+  technique: '拍摄手法',
+  params: '参数',
+  exif: 'EXIF',
+  score: '评分',
+  advice: '建议',
+  tags: '标签',
+  mood: '氛围',
+  alt: '无障碍',
+};
+
+/** `.gitem-text` 的内边距（mm）：0.4mm 上下 + 0.6mm 左右，写死在这里与 pdf.ts 的 CSS 对齐 */const BOX_PAD_X_MM = 1.2;
 const BOX_PAD_Y_MM = 0.8;
 
 const TECH_LABELS: { key: keyof Technique; label: string }[] = [
@@ -189,27 +205,6 @@ interface ItemContext {
   serif: string;
   /** 标题字体栈 */
   sans: string;
-}
-
-/**
- * 渲染字号：规划算出的 fontPt 是「这盒子能放下的最大字号」，
- * 标题要比正文大一档、图注/标签这些辅助信息要压到 8.5~9.5pt（与 blockNeedCm 一致）。
- */
-function renderPt(id: ItemPlan['item']['id'], planPt: number): number {
-  switch (id) {
-    case 'title':
-      return Math.min(planPt + 4, 16);
-    case 'caption':
-      return Math.min(planPt, 8.5);
-    case 'tags':
-      return Math.min(planPt, 9.5);
-    case 'alt':
-      return Math.min(planPt, 9);
-    case 'index':
-      return Math.min(planPt, 10);
-    default:
-      return planPt;
-  }
 }
 
 /** 纯文字段落：精确测量 → 必要时按整句缩短 → 返回可安全排进框里的文本 */
@@ -514,21 +509,19 @@ export interface GridPageParams {
   /** 0.8.4：页码。竖排版那边每页右下角都有页码，积木页以前没有，翻到中间页码就断了 */
   pageNo?: number;
 }
-
 /**
  * 画一页积木版照片页。返回一段 `<section class="page gpage-sheet">` HTML。
  *
- * 0.8.4：几何不再按「12×24 等分格子绝对定位」，改成 bands.ts 规划出来的行带。
- * 用户抱怨的三件事都出在等分格子上：标题和照片之间空一大块、照片和图注之间空一大块、
- * 页底再留 1/3 白。行带按内容算高度之后，这些空洞自然消失，富余高度平均分到纸的上下。
+ * 0.8.4（第二轮重做）：几何**直接照抄排版台的画布** —— 12 列 × 24 行，每个块落在它自己的
+ * 格子里（left/top/width/height 全部由 col/row/colSpan/rowSpan 乘出来）。
+ * 上一轮把块重新「流式」排了一遍，结果用户在排版台里对好的位置全失效，
+ * 这才是「我排版排出来的和真正出来的根本不是一个样子」的原因。
  */
 export function buildGridPhotoPage(params: GridPageParams): string {
   const { photo, index, settings, dataUrl } = params;
   const reservedCm = Math.max(0, params.reservedCm ?? 0);
   // 扣掉章头高度，再留一点点安全余量：整页高度必须 ≤ 版心高度，否则多印一张空白页
   const pageHeightCm = Math.max(6, params.contentHeightCm - reservedCm - PAGE_SAFE_CM);
-
-  const layout = resolveLayout(settings);
   const aspect =
     params.imgW && params.imgH && params.imgW > 0 && params.imgH > 0
       ? params.imgW / params.imgH
@@ -536,11 +529,9 @@ export function buildGridPhotoPage(params: GridPageParams): string {
         ? photo.width / photo.height
         : 3 / 2;
 
-  const plan = planPageBands({
+  const plan = planCanvasPage({
     photo,
-    index,
     settings,
-    layout,
     contentCm: params.contentCm,
     contentHeightCm: pageHeightCm,
     aspect,
@@ -556,53 +547,37 @@ export function buildGridPhotoPage(params: GridPageParams): string {
     sans: HEAD_FONT_CSS,
   };
 
-  const blockHtml = (item: BandItemPlan): string => {
-    const pt = item.id === 'image' ? 0 : renderPt(item.id, plan.fontPt);
-    // 高度按规划给的值，测量与渲染同源：文字刚好排满、图片按画幅收进去
-    const inner = blockInner(
-      {
-        item: { id: item.id, col: item.col, row: 0, colSpan: item.span, rowSpan: 1 },
-        widthCm: item.widthCm,
-        heightCm: Math.max(0.6, item.needCm),
-        fontPt: plan.fontPt,
-        needCm: item.needCm,
-        fits: true,
-        truncated: false,
-        shrunk: false,
-      },
-      pt,
-      ctx,
-    );
-    if (!inner) return '';
-    const fig = item.id === 'image';
-    const style = fig
-      ? `height:${mm(Math.max(1, item.imageHeightCm))}`
-      : `font-size:${pt}pt`;
-    return `<div class="gitem ${fig ? 'gitem-fig' : 'gitem-text'}" data-block="${item.id}" style="${style}">${inner}</div>`;
-  };
-
-  // 同一格（同 col / span）里的块按规划顺序竖着叠
-  const bandsHtml = plan.bands
-    .map((band) => {
-      const cells = new Map<string, BandItemPlan[]>();
-      for (const item of band.items) {
-        const key = `${item.col}:${item.span}`;
-        const list = cells.get(key);
-        if (list) list.push(item);
-        else cells.set(key, [item]);
-      }
-      const cellHtml = [...cells.values()]
-        .map((list) => {
-          const widthCm = list[0].widthCm;
-          const fig = list.length === 1 && list[0].id === 'image';
-          const inner = list.map(blockHtml).filter(Boolean).join('');
-          if (!inner) return '';
-          return `<div class="gcell${fig ? ' gcell-fig' : ''}" style="width:${mm(widthCm)};height:${mm(band.heightCm)}">${inner}</div>`;
-        })
-        .filter(Boolean)
-        .join('');
-      if (!cellHtml) return '';
-      return `<div class="gband" style="height:${mm(band.heightCm)};margin-bottom:${mm(band.gapAfterCm)}">${cellHtml}</div>`;
+  const cellsHtml = plan.cells
+    .map((cell) => {
+      const fig = cell.id === 'image';
+      const pt = fig ? 0 : cell.fontPt;
+      // 标签条（CSS 里的 padding-top 4.2mm）会吃掉格子里的高度，测量时要先让出来，
+      // 否则文字按满格量、落进格子却少了 4mm，最后一行就被 overflow 切掉（clipped）。
+      const label = fig ? '' : MODULE_LABEL[cell.id] ?? '';
+      const labelRoom = label ? 0.5 : 0;
+      const inner = blockInner(
+        {
+          item: { id: cell.id, col: 0, row: 0, colSpan: 1, rowSpan: 1 },
+          widthCm: Math.max(1, cell.widthCm - (label ? 0.32 : 0.12)),
+          heightCm: Math.max(1, cell.heightCm - labelRoom),
+          fontPt: fig ? 10.5 : cell.fontPt,
+          needCm: cell.needCm,
+          fits: true,
+          truncated: false,
+          shrunk: false,
+        },
+        pt,
+        ctx,
+      );
+      if (!inner) return '';
+      const box =
+        `left:${mm(cell.leftCm)};top:${mm(cell.topCm)};` +
+        `width:${mm(cell.widthCm)};height:${mm(cell.heightCm)}`;
+      // 0.8.5：每个文字块挂一个小标签（正文/评分/拍摄手法…）。0.8.4 之前整页全是
+      // 同一套灰字，读者看不出哪一块是什么（用户：「感觉全部都杂乱排在一起」）。
+      return `<div class="gitem ${fig ? 'gitem-fig' : 'gitem-text'}" data-block="${cell.id}"${
+        label ? ` data-label="${label}"` : ''
+      } style="${box}${fig ? '' : ';font-size:' + pt + 'pt'}">${inner}</div>`;
     })
     .filter(Boolean)
     .join('\n');
@@ -618,8 +593,8 @@ export function buildGridPhotoPage(params: GridPageParams): string {
       : '';
   return `
     <section class="page gpage-sheet${breakClass}" style="${radius}">
-      <div class="gpage" style="width:${mm(params.contentCm)};height:${mm(pageHeightCm)};padding-top:${mm(plan.topPadCm)}">
-${bandsHtml}
+      <div class="gpage" style="width:${mm(params.contentCm)};height:${mm(pageHeightCm)}">
+${cellsHtml}
 ${params.pageNo ? `<p class="pg-folio">${params.pageNo}</p>` : ''}
       </div>
     </section>`;

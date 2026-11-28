@@ -70,7 +70,7 @@ const TECH_LABELS: { key: keyof Technique; label: string }[] = [
   { key: 'post', label: '后期' },
 ];
 
-const pad2 = (n: number) => String(n).padStart(2, '0');
+
 
 /**
  * 单行文字适配：按真实字宽逐步砍字并补「…」，保证整行一定排得进给定宽度。
@@ -375,25 +375,24 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
       title: (chapter.title || '未命名章节').trim(),
       note: chapter.note?.trim() || undefined,
     };
-    if (useGrid) {
-      bodyParts.push(
-        `<section class="page ${single ? 'chapter-inline' : 'chapter-break'}">
-         <p class="chapter-no">第 ${pad2(chapterIndex + 1)} 章</p>
-         <h3 class="chapter-name">${escapeHtml(chapterInfo.title)}</h3>
-         ${chapterInfo.note ? `<p class="chapter-note">${escapeHtml(chapterInfo.note)}</p>` : ''}
-         <div class="rule short"></div>
-       </section>`,
-      );
-    } else if (!single) {
+    // 0.8.5：积木版不再把章头单独印成一页。
+    // 原来 useGrid 分支给每个章节 push 一个 <section class="page chapter-inline">，
+    // 而 .page 自带 break-before —— 每一章就独占一页，整页只剩「第 01 章 7月15日」。
+    // 用户的原话是「我都没勾日期，它就是把日期单独做出了一页」。积木版的画面完全由
+    // 画布决定（planCanvasPage 直接照抄排版台的格子），章头插进来只会打断它，所以不印。
+    if (!useGrid && !single) {
       // 0.6.4：章扉单独一页（左对齐、上半页留白、不编页码），照片页再从新的一页开始
       bodyParts.push(renderChapterPage(env, chapterInfo));
     }
+    // 章节标题就是日期（用户把章节按拍摄日命名）时，连内联章头也不印：
+    // 那种「第 01 章 7月15日」的横线在每一页顶上重复出现，读起来就是一道日期分割线。
+    const dateTitle = /^\d{1,2}\s*月\s*\d{1,2}\s*日$/.test(chapterInfo.title);
     chapter.photos.forEach((photo, photoIndex) => {
       order += 1;
       // 单张章节：章头已排在同一页顶端，照片别再另起一页。
       // 积木版还得把章头占的高度让出来；章注可能换行，按实测文字高度累加
       // （让得不够，整页会被推到下一页，前一面只印着章头 —— 白页）。
-      const shareHeading = single && photoIndex === 0;
+      const shareHeading = !useGrid && single && !dateTitle && photoIndex === 0;
       const headingReserveCm = inlineHeadingHeightCm(chapterInfo.title, chapterInfo.note, layout.contentW);
       bodyParts.push(
         photoSection(
@@ -645,18 +644,21 @@ export async function buildAlbumHtml(params: ExportPdfParams): Promise<string> {
   .card-title { margin:0 0 4px; font-size:8.5pt; letter-spacing:.08em; color:var(--ink-soft); }
   .card-line { margin:0 0 2px; font-size:9pt; line-height:1.5; color:var(--ink); }
 
-  /* 0.8.4 积木排版：一页 = 若干「行带」，带高按内容真实高度算，带内按列并排。
-     以前是 12×24 等分格子绝对定位：图片在自己的格子里垂直居中，格子又比图高一截，
-     于是标题与照片之间、照片与图注之间各空一大块，页底再剩 1/3 白 —— 用户说的「杂乱」
-     就是这个。外层 .gpage-sheet 是一张纸（纸色铺满 + 页边距），内层 .gpage 只管版心。 */
+  /* 0.8.4 积木排版（第二轮重做）：几何**照抄排版台的画布** —— 12 列 × 24 行，
+     每个块由 col/row/colSpan/rowSpan 乘出绝对矩形，left/top/width/height 全部内联写死。
+     上一轮改成「行带」重排过一遍，看着整齐了，但排版台里对好的位置全部失效，
+     所以这里回到绝对定位：排版台长什么样，印出来就是什么样。 */
   .gpage-sheet { overflow: hidden; }
-  .gpage { display:flex; flex-direction:column; overflow:hidden; break-inside: avoid; position:relative; }
+  .gpage { overflow:hidden; break-inside: avoid; position:relative; }
   .gpage:last-child { break-after: auto; }
-  .gband { display:flex; align-items:flex-start; column-gap:3.6mm; break-inside:avoid; }
-  .gcell { display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-  .gcell-fig { align-items:center; justify-content:center; }
-  .gitem { min-height:0; }
+  .gitem { position:absolute; min-height:0; overflow:hidden; }
   .gitem-text { padding:0.4mm 0.6mm; }
+.gitem-text[data-label] { padding:4.2mm 1.6mm 1.2mm; border:0.2mm solid var(--hairline); border-radius:0.8mm; background:var(--paper-soft); }
+.gitem-text[data-label]::before {
+  content:attr(data-label);
+  position:absolute; left:0.6mm; top:1.1mm;
+  font-size:7pt; letter-spacing:.16em; color:var(--ink-soft);
+}
   .gitem-fig { display:flex; align-items:center; justify-content:center; }
   .gitem figure { margin:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
   .gitem figure img { max-width:100%; max-height:100%; object-fit:contain;

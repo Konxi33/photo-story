@@ -366,6 +366,9 @@ export function ExportDialog({
         useCanvas: useStudio,
         pageStyle: pageStyleId,
         photoRadius,
+        // 0.8.5：纸面底色一直漏写 —— 用户选米白，buildSettings 却没带上 paper，
+        // 落盘的永远是项目默认的纯白，所以「选米白导出还是白纸」。
+        paper,
         showDate,
       },
       blocks,

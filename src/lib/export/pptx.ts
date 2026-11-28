@@ -8,9 +8,18 @@ import { AssetRepository } from '@/lib/db';
 import { formatDate } from '@/lib/utils';
 import type { ExportSettings, Photo, Project } from '@/types/domain';
 
+import { paperTintOption } from './bookStyle';
 import { applyFrame } from './frame';
 import { encodeImageForDocx, type EncodedImage } from './image-encode';
 import { saveDocument } from './output';
+
+/**
+ * 0.8.5：PPT 底色跟着「纸面底色」走。
+ * 之前封面和每页都写死 'FBFAF7'，用户选米白导出还是白的（m07076）。
+ */
+function pptPaper(settings: ExportSettings | undefined): string {
+  return paperTintOption(settings?.paper).bg.replace('#', '').toUpperCase();
+}
 
 /** pptxgenjs 浏览器包的运行期形态（只用到其中几个方法） */
 interface PptxSlide {
@@ -108,7 +117,7 @@ export async function exportToPptx(
   pptx.title = project.name;
 
   const cover = pptx.addSlide();
-  cover.background = { color: 'FBFAF7' };
+  cover.background = { color: pptPaper(params.settings) };
   cover.addText(project.name, {
     x: MARGIN,
     y: 2.4,
@@ -170,7 +179,7 @@ export async function exportToPptx(
     }
 
     const slide = pptx.addSlide();
-    slide.background = { color: 'FBFAF7' };
+    slide.background = { color: pptPaper(params.settings) };
 
     const imgBox = { x: MARGIN, y: MARGIN, w: 7.1, h: SLIDE_H - MARGIN * 2 };
     if (encoded) {
