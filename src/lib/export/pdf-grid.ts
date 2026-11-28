@@ -465,7 +465,10 @@ function blockInner(plan: ItemPlan, pt: number, ctx: ItemContext): string {
     case 'tags': {
       if (!a || a.tags.length === 0) return '';
       const text = a.tags.map((tag) => '#' + tag).join('　');
-      return paragraphHtml('tags', text, innerW, innerH, makeFont(ctx.serif, pt, pt * 1.6), 1.6);
+      // 标签常常四五个挤在一行，按正文同号会只剩「#城市天际线 #光…」。
+      // 这里降一号再量，尽量多留住几个词（画布里这一格只有一行高，装不下两行）。
+      const tagPt = Math.max(7.5, pt - 1);
+      return paragraphHtml('tags', text, innerW, innerH, makeFont(ctx.serif, tagPt, tagPt * 1.55), 1.55);
     }
 
     case 'mood': {
